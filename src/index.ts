@@ -283,7 +283,7 @@ async function api(request: Request, env: Env): Promise<Response> {
         routeId=Number(ins.meta.last_row_id);
       }
       const batch:any[]=[];
-      for(const step of steps.results)batch.push(env.DB.prepare("INSERT INTO document_route_tasks(route_id,step_order,step_key,step_name,assignee_role,task_status) VALUES(?,?,?,?,?,'Pending')").bind(routeId,step.step_order,step.step_key,step.step_name,step.assignee_role));
+      for(const step of steps.results)batch.push(env.DB.prepare("INSERT INTO document_route_tasks(route_id,step_order,step_key,step_name,assignee_role,action_type,task_status) VALUES(?,?,?,?,?,?,'Pending')").bind(routeId,step.step_order,step.step_key,step.step_name,step.assignee_role,step.action_type));
       batch.push(env.DB.prepare("INSERT INTO document_route_events(route_id,actor_id,event_type,from_status,to_status,from_step,to_step,note) VALUES(?,?,'SUBMITTED',?,'In Review',?,?,?)").bind(routeId,auth.id,existing?.route_status||"Draft","Draft",steps.results[0].step_name,String(input.note||"").slice(0,3000)));
       await env.DB.batch(batch);
       await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_task','Dokumen menunggu pemeriksaan',?, ?, ? FROM users WHERE is_active=1 AND (role=? OR role='Admin')").bind(docNo+" — "+title,resource,id,steps.results[0].assignee_role).run();
@@ -303,7 +303,8 @@ async function api(request: Request, env: Env): Promise<Response> {
       const task=await env.DB.prepare("SELECT * FROM document_route_tasks WHERE route_id=? AND task_status IN ('Pending','In Progress') ORDER BY step_order LIMIT 1").bind(id).first<any>();
       if(!task)return fail("Tidak ada tugas aktif pada routing ini.",409);
       if(auth.role!=="Admin" && auth.role!==task.assignee_role && task.assignee_id!==auth.id)return fail("Anda tidak memiliki kewenangan untuk memproses tahapan ini.",403);
-      if(task.action_type==="Process" && decision==="Approved"){} 
+      if(decision==="Completed" && task.action_type!=="Process" && task.action_type!=="Record")return fail("Tahap ini harus diputuskan dengan persetujuan, bukan ditandai selesai.");
+      if(decision==="Approved" && (task.action_type==="Process"||task.action_type==="Record"))return fail("Tahap proses harus ditandai selesai.");
       if(decision==="Revision"||decision==="Rejected"){
         const nextStatus=decision==="Revision"?"Revision":"Rejected";
         await env.DB.batch([
