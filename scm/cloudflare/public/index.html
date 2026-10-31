@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101d35">
+  <title>SCM Automation | BAI</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div id="login-screen" class="login-shell">
+    <form id="login-form" class="login-card">
+      <div class="brand-mark">SCM</div>
+      <p class="eyebrow">SMART SOURCING & CONTRACT MANAGEMENT</p>
+      <h1>Selamat datang</h1>
+      <p class="muted">Masuk ke SCM Automation untuk melanjutkan pekerjaan.</p>
+      <label>Username<input name="username" autocomplete="username" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary full" type="submit">Masuk ke sistem</button>
+      <p id="login-error" class="error" role="alert"></p>
+      <small class="muted">Akses hanya untuk pengguna yang telah terdaftar.</small>
+    </form>
+  </div>
+
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark small">SCM</span><div><strong>SCM Automation</strong><small>Procurement Platform</small></div></div>
+      <div class="nav-caption">WORKSPACE</div>
+      <nav id="navigation">
+        <button class="nav-item active" data-page="dashboard"><span>▦</span> Dashboard</button>
+        <button class="nav-item" data-page="sourcing"><span>⇄</span> Sourcing Request</button>
+        <button class="nav-item" data-page="kak"><span>▤</span> KAK / TOR</button>
+        <button class="nav-item" data-page="vendors"><span>◈</span> Vendor Management</button>
+        <button class="nav-item" data-page="contract_drafts"><span>▧</span> Draft Contract</button>
+        <button class="nav-item" data-page="contracts"><span>▣</span> Contract Management</button>
+        <button class="nav-item" data-page="obligations"><span>✓</span> Obligations</button>
+        <button class="nav-item" data-page="change_orders"><span>↻</span> Change Orders</button>
+        <button class="nav-item" data-page="approvals"><span>◎</span> Approval</button>
+        <button class="nav-item" data-page="vendor_performance"><span>◫</span> Vendor Performance</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="secure-note">● Secure workspace</div><button id="logout" class="logout">Keluar ↗</button></div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div><span class="crumb">BAI / Procurement</span><strong id="page-title">Dashboard</strong></div><div class="user-chip"><span class="avatar" id="user-avatar">A</span><span><strong id="user-name">Administrator</strong><small id="user-role">Admin</small></span></div></header>
+      <section id="page-content" class="content"><div class="loading">Memuat data SCM...</div></section>
+    </main>
+  </div>
+  <dialog id="record-dialog" class="record-dialog"><form id="record-form" method="dialog"><div class="dialog-head"><div><p class="eyebrow">DATA ENTRY</p><h2 id="dialog-title">Tambah Data</h2></div><button type="button" class="icon-button" id="dialog-close">×</button></div><div id="form-fields" class="form-grid"></div><div class="dialog-actions"><button type="button" class="secondary" id="dialog-cancel">Batal</button><button type="submit" class="primary">Simpan Data</button></div></form></dialog>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
