@@ -103,7 +103,7 @@ async function renderVirtualPage(page,config){
       if(state.user.role!=="Admin"){ $("#page-content").innerHTML='<div class="panel empty">Akses User Management hanya untuk Administrator.</div>';return; }
       const result=await api("users");
       const users=result.data||[];
-      const roles=["Admin","Section Head","Procurement","Authorized Approver","System & Helpdesk Specialist","Network & Equipment Specialist","Viewer"];
+      const roles=["Admin","Section Head","System & Helpdesk Specialist","Network & Equipment Specialist","Viewer"];
       $("#page-content").innerHTML=`<div class="page-heading"><div><p class="eyebrow">SYSTEM ADMINISTRATION</p><h1>Manajemen Pengguna</h1><p>Buat akun, tetapkan role, dan reset password pengguna.</p></div><button class="primary" id="create-user">＋ Tambah User</button></div>
       <div class="panel"><div class="panel-head"><div><h3>Daftar Pengguna</h3><p>${users.length} akun terdaftar</p></div></div><div class="table-wrap"><table><thead><tr><th>Nama</th><th>Username</th><th>Role</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.full_name)}</td><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td><span class="status ${u.is_active?"Active":"Inactive"}">${u.is_active?"Aktif":"Nonaktif"}</span></td><td><button class="action-button" data-reset-user="${Number(u.id)}" data-user-name="${esc(u.full_name)}">Reset Password</button></td></tr>`).join("")}</tbody></table></div></div>
       <div class="panel user-security-note"><p><strong>Keamanan:</strong> Password minimal 12 karakter. Password tidak ditampilkan kembali setelah disimpan. Reset password tidak otomatis mengakhiri sesi login yang sedang aktif.</p></div>`;
@@ -152,8 +152,8 @@ function tableHtml(rows,columns){
     let actions='<button type="button" class="action-button" data-kak-preview="'+Number(row.id)+'">Preview / Cetak PDF</button>';
     if((status==="Draft"&&(role==="Admin"||row.requester===state.user?.full_name))||(status==="Revision"&&role==="Admin"))actions+=' <button type="button" class="action-button" data-kak-edit="'+Number(row.id)+'">Edit</button>';
     if(["Draft","Revision"].includes(status))actions+=' <button type="button" class="action-button" data-kak-submit="'+Number(row.id)+'">Ajukan</button>';
-    if(status==="Review"&&["Section Head","Procurement"].includes(role))actions+=' <button type="button" class="action-button" data-kak-review="Approved" data-id="'+Number(row.id)+'">Setujui Review</button> <button type="button" class="action-button" data-kak-review="Revision" data-id="'+Number(row.id)+'">Kembalikan Revisi</button>';
-    if(status==="Final Approval"&&role==="Authorized Approver")actions+=' <button type="button" class="action-button" data-kak-final="'+Number(row.id)+'">Persetujuan Final</button>';
+    if(status==="Review"&&role==="Section Head")actions+=' <button type="button" class="action-button" data-kak-review="Approved" data-id="'+Number(row.id)+'">Setujui Review</button> <button type="button" class="action-button" data-kak-review="Revision" data-id="'+Number(row.id)+'">Kembalikan Revisi</button>';
+    if(false)actions+=' <button type="button" class="action-button" data-kak-final="'+Number(row.id)+'">Persetujuan Final</button>';
     return '<tr>'+columns.map(c=>'<td>'+(c==="status"?'<span class="status">'+esc(status)+'</span>':cellValue(c,row[c]))+'</td>').join("")+'<td><span class="status">'+esc(wf.current_step||status)+'</span></td><td>'+actions+'</td></tr>';
   }).join("")}</tbody></table>`;
 }
@@ -286,9 +286,9 @@ $("#record-form").addEventListener("submit",saveRecord);
 $("#page-content").addEventListener("click",async e=>{
   const preview=e.target.closest("[data-kak-preview]");if(preview){openKakPreview(preview.dataset.kakPreview);return}
   const edit=e.target.closest("[data-kak-edit]");if(edit){await editKak(edit.dataset.kakEdit);return}
-  const submit=e.target.closest("[data-kak-submit]");if(submit){if(window.confirm("Ajukan KAK ini ke Section Head dan Procurement?"))await kakWorkflowAction(submit.dataset.kakSubmit,"submit");return}
+  const submit=e.target.closest("[data-kak-submit]");if(submit){if(window.confirm("Ajukan KAK ini ke Divisi SCM untuk direview Section Head?"))await kakWorkflowAction(submit.dataset.kakSubmit,"submit");return}
   const review=e.target.closest("[data-kak-review]");if(review){await kakWorkflowAction(review.dataset.id,"review",{decision:review.dataset.kakReview});return}
-  const final=e.target.closest("[data-kak-final]");if(final&&window.confirm("Berikan persetujuan final untuk KAK ini?"))await kakWorkflowAction(final.dataset.kakFinal,"final_approve");
+  const final=e.target.closest("[data-kak-final]");
 });
 $("#dialog-close").addEventListener("click",()=>$("#record-dialog").close());
 $("#dialog-cancel").addEventListener("click",()=>$("#record-dialog").close());
