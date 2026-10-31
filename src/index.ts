@@ -219,12 +219,12 @@ async function api(request: Request, env: Env): Promise<Response> {
 
   if (path[0] === "ai" && path[1] === "documents" && method === "GET") {
     const [kaks, drafts, contracts] = await Promise.all([
-      env.DB.prepare("SELECT id, kak_no AS document_no, title, status, 'kak' AS resource, 'KAK / TOR' AS document_type, updated_at, created_at FROM kak_documents ORDER BY id DESC LIMIT 500").all<any>(),
-      env.DB.prepare("SELECT id, draft_no AS document_no, title, status, 'contract_drafts' AS resource, 'Draft Contract' AS document_type, updated_at, created_at FROM contract_drafts ORDER BY id DESC LIMIT 500").all<any>(),
-      env.DB.prepare("SELECT id, contract_no AS document_no, title, status, 'contracts' AS resource, 'Kontrak' AS document_type, updated_at, created_at FROM contracts ORDER BY id DESC LIMIT 500").all<any>()
+      env.DB.prepare("SELECT id, kak_no AS document_no, title, status, 'kak' AS resource, 'KAK / TOR' AS document_type, created_at FROM kak_documents ORDER BY id DESC LIMIT 500").all<any>(),
+      env.DB.prepare("SELECT id, draft_no AS document_no, title, status, 'contract_drafts' AS resource, 'Draft Contract' AS document_type, created_at FROM contract_drafts ORDER BY id DESC LIMIT 500").all<any>(),
+      env.DB.prepare("SELECT id, contract_no AS document_no, title, status, 'contracts' AS resource, 'Kontrak' AS document_type, created_at FROM contracts ORDER BY id DESC LIMIT 500").all<any>()
     ]);
     const data = [...(kaks.results || []), ...(drafts.results || []), ...(contracts.results || [])]
-      .sort((a: any, b: any) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
+      .sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     return json({ ok: true, data });
   }
 
