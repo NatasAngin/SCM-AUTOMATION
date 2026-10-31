@@ -13,7 +13,7 @@
     {
       "binding": "DB",
       "database_name": "scm-automation-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "c1d0d506-06fd-4282-b4b8-e7d7aff6d5b3",
       "migrations_dir": "migrations"
     }
   ],
