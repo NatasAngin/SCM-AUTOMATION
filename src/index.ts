@@ -13,7 +13,7 @@ type FieldMap = Record<string, string[]>;
 const TABLES: FieldMap = {
   vendors: ["code", "name", "category", "email", "phone", "status"],
   sourcing: ["request_no", "title", "department", "estimated_value", "status", "request_date", "created_by"],
-  kak: ["kak_no", "title", "department", "requester", "background", "objective", "scope", "deliverables", "location", "duration", "schedule", "budget", "payment_terms", "requirements", "evaluation_method", "special_terms", "status"],
+  kak: ["kak_no", "title", "department", "requester", "background", "objective", "scope", "deliverables", "location", "duration", "schedule", "budget", "payment_terms", "requirements", "evaluation_method", "special_terms", "status", "created_by"],
   contracts: ["contract_no", "vendor_id", "title", "contract_value", "start_date", "end_date", "status", "created_by"],
   contract_drafts: ["draft_no", "kak_id", "vendor_id", "title", "contract_value", "start_date", "end_date", "scope", "payment_terms", "clauses", "created_by", "status"],
   obligations: ["contract_id", "title", "vendor_name", "due_date", "status", "notes", "created_by"],
@@ -260,6 +260,7 @@ async function api(request: Request, env: Env): Promise<Response> {
           (SELECT COUNT(*) FROM document_route_tasks t WHERE t.route_id=r.id AND t.task_status='Pending') AS pending_tasks,
           (SELECT t.assignee_role FROM document_route_tasks t WHERE t.route_id=r.id AND t.task_status='Pending' ORDER BY t.step_order LIMIT 1) AS pending_role
         FROM document_routes r LEFT JOIN users u ON u.id=r.requester_id
+        " + (auth.role === "User" ? "WHERE r.requester_id=" + Number(auth.id) : "") + "
         ORDER BY CASE r.route_status WHEN 'In Review' THEN 0 WHEN 'Revision' THEN 1 WHEN 'In Process' THEN 2 ELSE 3 END, r.updated_at DESC
         LIMIT 500
       `).all<any>();
@@ -279,7 +280,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     if (method === "GET" && path.length === 2) {
       const id=Number(path[1]);
       if(!Number.isInteger(id)||id<1)return fail("ID routing tidak valid.");
-      const route=await env.DB.prepare("SELECT r.*,u.full_name AS requester FROM document_routes r LEFT JOIN users u ON u.id=r.requester_id WHERE r.id=?").bind(id).first<any>();
+      const route=await env.DB.prepare("SELECT r.*,u.full_name AS requester FROM document_routes r LEFT JOIN users u ON u.id=r.requester_id WHERE r.id=?"+(auth.role==="User"?" AND r.requester_id="+Number(auth.id):"")).bind(id).first<any>();
       if(!route)return fail("Routing dokumen tidak ditemukan.",404);
       const [tasks,events]=await Promise.all([
         env.DB.prepare("SELECT t.*,u.full_name AS actor_name FROM document_route_tasks t LEFT JOIN users u ON u.id=t.acted_by WHERE t.route_id=? ORDER BY t.step_order").bind(id).all<any>(),
