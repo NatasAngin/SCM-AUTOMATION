@@ -306,9 +306,9 @@ async function api(request: Request, env: Env): Promise<Response> {
       if(!doc)return fail("Dokumen sumber tidak ditemukan.",404);
       const ownerId=Number(doc.created_by||0);
       const requesterName=String(doc.requester||"").trim();
-      const hasOwnershipMetadata=ownerId>0||requesterName.length>0;
       const isOwner=ownerId>0?ownerId===auth.id:requesterName.length>0?requesterName===auth.full_name:false;
-      if(auth.role!=="Admin" && hasOwnershipMetadata && !isOwner)return fail("Hanya pembuat dokumen atau Admin yang dapat mengajukan routing.",403);
+      if(auth.role==="User" && !isOwner)return fail("Dokumen ini tidak memiliki kepemilikan yang dapat diverifikasi atau bukan milik Anda.",403);
+      if(auth.role!=="Admin" && ownerId>0 && !isOwner)return fail("Hanya pembuat dokumen atau Admin yang dapat mengajukan routing.",403);
       const template=await env.DB.prepare("SELECT * FROM routing_templates WHERE document_type=? AND is_active=1").bind(cfg.type).first<any>();
       if(!template)return fail("Template routing belum tersedia untuk jenis dokumen ini.",409);
       const existing=await env.DB.prepare("SELECT id,route_status FROM document_routes WHERE resource=? AND resource_id=?").bind(resource,id).first<any>();
@@ -343,7 +343,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       const note=String(input.note||"").trim().slice(0,3000);
       if(!["Approved","Revision","Rejected","Completed"].includes(decision))return fail("Keputusan routing tidak valid.");
       if(["Revision","Rejected"].includes(decision)&&!note)return fail("Catatan wajib diisi untuk revisi atau penolakan.");
-      const route=await env.DB.prepare("SELECT * FROM document_routes WHERE id=?").bind(id).first<any>();
+      const route=await env.DB.prepare("SELECT * FROM document_routes WHERE id=?"+(auth.role==="User"?" AND requester_id="+Number(auth.id):"")).bind(id).first<any>();
       if(!route)return fail("Routing dokumen tidak ditemukan.",404);
       if(!["In Review","In Process"].includes(route.route_status))return fail("Dokumen tidak sedang menunggu tindakan.",409);
       const task=await env.DB.prepare("SELECT * FROM document_route_tasks WHERE route_id=? AND task_status IN ('Pending','In Progress') ORDER BY step_order LIMIT 1").bind(id).first<any>();
@@ -509,10 +509,11 @@ async function api(request: Request, env: Env): Promise<Response> {
   }
 
   if (path[0] === "ai" && path[1] === "documents" && method === "GET") {
+    const ownerSql = auth.role === "User" ? " WHERE created_by=" + Number(auth.id) : "";
     const [kaks, drafts, contracts] = await Promise.all([
-      env.DB.prepare("SELECT id, kak_no AS document_no, title, status, 'kak' AS resource, 'KAK / TOR' AS document_type, created_at FROM kak_documents ORDER BY id DESC LIMIT 500").all<any>(),
-      env.DB.prepare("SELECT id, draft_no AS document_no, title, status, 'contract_drafts' AS resource, 'Draft Contract' AS document_type, created_at FROM contract_drafts ORDER BY id DESC LIMIT 500").all<any>(),
-      env.DB.prepare("SELECT id, contract_no AS document_no, title, status, 'contracts' AS resource, 'Kontrak' AS document_type, created_at FROM contracts ORDER BY id DESC LIMIT 500").all<any>()
+      env.DB.prepare("SELECT id, kak_no AS document_no, title, status, 'kak' AS resource, 'KAK / TOR' AS document_type, created_at FROM kak_documents" + ownerSql + " ORDER BY id DESC LIMIT 500").all<any>(),
+      env.DB.prepare("SELECT id, draft_no AS document_no, title, status, 'contract_drafts' AS resource, 'Draft Contract' AS document_type, created_at FROM contract_drafts" + ownerSql + " ORDER BY id DESC LIMIT 500").all<any>(),
+      env.DB.prepare("SELECT id, contract_no AS document_no, title, status, 'contracts' AS resource, 'Kontrak' AS document_type, created_at FROM contracts" + ownerSql + " ORDER BY id DESC LIMIT 500").all<any>()
     ]);
     const data = [...(kaks.results || []), ...(drafts.results || []), ...(contracts.results || [])]
       .sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
@@ -529,6 +530,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     if (!table || !Number.isInteger(id) || id < 1) return fail("Pilih jenis dokumen dan ID dokumen yang valid.");
     const document = await env.DB.prepare("SELECT * FROM " + table + " WHERE id=?").bind(id).first<any>();
     if (!document) return fail("Dokumen tidak ditemukan.", 404);
+    if (auth.role === "User" && Number(document.created_by || 0) !== auth.id) return fail("Anda hanya dapat melakukan AI Review pada dokumen milik sendiri.", 403);
     const instruction = String(input.instruction || "Lakukan review menyeluruh dan identifikasi kekurangan, inkonsistensi, risiko, dan tahapan yang belum terpenuhi.").trim().slice(0, 4000);
     try {
     const response: any = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct-fp8", { messages: [
@@ -562,12 +564,14 @@ async function api(request: Request, env: Env): Promise<Response> {
   if (!table || !fields) return fail("Endpoint API tidak ditemukan.", 404);
 
   if (method === "GET" && path.length === 1) {
+    if (auth.role === "User" && resource === "vendor_performance") return fail("Akses modul evaluasi kinerja vendor hanya untuk role berwenang.",403);
     const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 100), 1), 500);
     const ownerFilter = auth.role === "User" && resource !== "vendors" ? " WHERE created_by=" + Number(auth.id) : "";
     const rows = await env.DB.prepare(`SELECT * FROM ${table}${ownerFilter} ORDER BY id DESC LIMIT ?`).bind(limit).all();
     return json({ ok: true, data: rows.results || [] });
   }
   if (method === "POST" && path.length === 1) {
+    if (auth.role === "User" && resource === "vendor_performance") return fail("Akses modul evaluasi kinerja vendor hanya untuk role berwenang.",403);
     const input = cleanInput(await bodyObject(request), fields);
     const required: Record<string, string[]> = {
       vendors: ["code", "name"], sourcing: ["request_no", "title"], kak: ["kak_no", "title", "department", "requester"],
@@ -601,6 +605,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, id: result.meta.last_row_id }, 201);
   }
   if (method === "PUT" && path.length === 2) {
+    if (auth.role === "User" && resource === "vendor_performance") return fail("Akses modul evaluasi kinerja vendor hanya untuk role berwenang.",403);
     if (resource === "kak") return fail("Perubahan KAK harus melalui endpoint workflow agar hak akses dan audit trail terjaga.",403);
     const id = Number(path[1]);
     if (!Number.isInteger(id) || id < 1) return fail("ID tidak valid.");
@@ -615,6 +620,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     return json({ ok: true });
   }
   if (method === "DELETE" && path.length === 2) {
+    if (auth.role === "User" && resource === "vendor_performance") return fail("Akses modul evaluasi kinerja vendor hanya untuk role berwenang.",403);
     if (!["vendors", "sourcing", "kak", "contracts", "contract_drafts", "obligations", "change_orders"].includes(resource)) return fail("Penghapusan tidak diizinkan untuk modul ini.", 403);
     const id = Number(path[1]);
     if (!Number.isInteger(id) || id < 1) return fail("ID tidak valid.");
