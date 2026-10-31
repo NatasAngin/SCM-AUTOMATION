@@ -32,6 +32,7 @@ async function boot(){
 }
 function showApp(){
   $("#login-screen").classList.add("hidden");$("#app-shell").classList.remove("hidden");
+  const userNav=$('[data-page="users"]');if(userNav)userNav.style.display=state.user.role==="Admin"?"flex":"none";
   $("#user-name").textContent=state.user.full_name;$("#user-role").textContent=state.user.role;$("#user-avatar").textContent=(state.user.full_name||"A").slice(0,1).toUpperCase();
   renderPage("dashboard");
 }
