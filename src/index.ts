@@ -164,7 +164,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       const fullName = String(input.full_name || "").trim();
       const role = String(input.role || "").trim();
       const password = String(input.password || "");
-      const allowedRoles = ["Admin", "Section Head", "System & Helpdesk Specialist", "Network & Equipment Specialist", "Viewer"];
+      const allowedRoles = ["Admin", "Section Head", "Procurement", "Authorized Approver", "System & Helpdesk Specialist", "Network & Equipment Specialist", "Viewer"];
       if (!/^[a-z0-9._-]{3,50}$/.test(username)) return fail("Username harus 3–50 karakter: huruf kecil, angka, titik, garis bawah, atau tanda hubung.");
       if (fullName.length < 2 || fullName.length > 100) return fail("Nama lengkap wajib diisi (2–100 karakter).");
       if (!allowedRoles.includes(role)) return fail("Role tidak valid.");
@@ -279,7 +279,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     }
     if (action === "final_approve") {
       if (status!=="Final Approval") return fail("KAK belum menyelesaikan kedua pemeriksaan.",409);
-      if (!["Authorized Approver","Admin"].includes(auth.role)) return fail("Persetujuan final hanya untuk Authorized Approver.",403);
+      if (auth.role !== "Authorized Approver") return fail("Persetujuan final hanya untuk Authorized Approver.",403);
       await env.DB.batch([
         env.DB.prepare("UPDATE kak_workflows SET workflow_status='Final',current_step='Completed',final_approved_by=?,final_approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE kak_id=?").bind(auth.id,kakId),
         env.DB.prepare("UPDATE kak_documents SET status='Approved' WHERE id=?").bind(kakId),
