@@ -174,8 +174,9 @@ async function api(request: Request, env: Env): Promise<Response> {
     let routeStatuses:any = { results: [] };
     let routePending = 0;
     try {
-      routeStatuses = await env.DB.prepare("SELECT route_status AS status, COUNT(*) AS n FROM document_routes GROUP BY route_status").all<any>();
-      const pendingRoutes = await env.DB.prepare("SELECT COUNT(*) AS n FROM document_routes WHERE route_status IN ('In Review','In Process','Revision')").first<any>();
+      const routeOwnerFilter = own ? " WHERE requester_id=" + Number(auth.id) : "";
+      routeStatuses = await env.DB.prepare("SELECT route_status AS status, COUNT(*) AS n FROM document_routes" + routeOwnerFilter + " GROUP BY route_status").all<any>();
+      const pendingRoutes = await env.DB.prepare("SELECT COUNT(*) AS n FROM document_routes WHERE route_status IN ('In Review','In Process','Revision')" + (own ? " AND requester_id=" + Number(auth.id) : "")).first<any>();
       routePending = Number(pendingRoutes?.n || 0);
     } catch (routingError) {
       console.warn("Dashboard routing metrics unavailable; apply routing migrations to D1.", routingError);
@@ -229,8 +230,12 @@ async function api(request: Request, env: Env): Promise<Response> {
   // Notifications: each authenticated user receives a personal inbox entry.
   if (path[0] === "notifications") {
     if (method === "GET" && path.length === 1) {
-      const rows = await env.DB.prepare("SELECT id,type,title,message,resource,resource_id,is_read,created_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 50").bind(auth.id).all();
-      const unread = await env.DB.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND is_read=0").bind(auth.id).first<any>();
+      const visibleNotification = auth.role === "User"
+        ? " AND ((resource='sourcing' AND EXISTS(SELECT 1 FROM sourcing_requests d WHERE d.id=notifications.resource_id AND d.created_by=?)) OR (resource='kak' AND EXISTS(SELECT 1 FROM kak_documents d WHERE d.id=notifications.resource_id AND d.created_by=?)) OR (resource='contracts' AND EXISTS(SELECT 1 FROM contracts d WHERE d.id=notifications.resource_id AND d.created_by=?)) OR (resource='contract_drafts' AND EXISTS(SELECT 1 FROM contract_drafts d WHERE d.id=notifications.resource_id AND d.created_by=?)) OR (resource='obligations' AND EXISTS(SELECT 1 FROM obligations d WHERE d.id=notifications.resource_id AND d.created_by=?)) OR (resource='change_orders' AND EXISTS(SELECT 1 FROM change_orders d WHERE d.id=notifications.resource_id AND d.created_by=?)) OR (resource='approvals' AND EXISTS(SELECT 1 FROM approvals d WHERE d.id=notifications.resource_id AND d.created_by=?)) OR (resource='vendors' AND EXISTS(SELECT 1 FROM vendors d WHERE d.id=notifications.resource_id)))"
+        : "";
+      const notificationBindings = auth.role === "User" ? [auth.id,auth.id,auth.id,auth.id,auth.id,auth.id,auth.id] : [];
+      const rows = await env.DB.prepare("SELECT id,type,title,message,resource,resource_id,is_read,created_at FROM notifications WHERE user_id=?" + visibleNotification + " ORDER BY id DESC LIMIT 50").bind(auth.id,...notificationBindings).all();
+      const unread = await env.DB.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND is_read=0" + visibleNotification).bind(auth.id,...notificationBindings).first<any>();
       return json({ ok: true, data: rows.results || [], unread: unread?.n || 0 });
     }
     if (method === "POST" && path.length === 3 && path[2] === "read") {
