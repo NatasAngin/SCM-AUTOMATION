@@ -3,7 +3,9 @@
   "name": "scm-automation-preview",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-31",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
@@ -17,5 +19,13 @@
       "migrations_dir": "migrations"
     }
   ],
-  "observability": { "enabled": true }
+  "observability": {
+    "enabled": true
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "vars": {
+    "AI_MODEL": "@cf/meta/llama-3.1-8b-instruct"
+  }
 }
