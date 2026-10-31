@@ -61,7 +61,19 @@ async function renderVirtualPage(page,config){
     if(page==="ai_settings"){
       $("#page-content").innerHTML=`<div class="page-heading"><div><p class="eyebrow">AUTOMATION & AI</p><h1>${config.title}</h1><p>${config.description}</p></div></div><div class="panel"><h3>Cloudflare Workers AI</h3><p>AI Copilot menggunakan binding Workers AI jika telah diaktifkan pada konfigurasi Worker. Model lokal Ollama dari instalasi XAMPP tidak otomatis tersedia di Cloudflare.</p><p class="hint">Status integrasi diperiksa saat permintaan AI dijalankan.</p></div>`;return;
     }
-    if(page==="settings"){
+    if(page==="users"){
+      if(state.user.role!=="Admin"){ $("#page-content").innerHTML='<div class="panel empty">Akses User Management hanya untuk Administrator.</div>';return; }
+      const result=await api("users");
+      const users=result.data||[];
+      const roles=["Admin","Section Head","System & Helpdesk Specialist","Network & Equipment Specialist","Viewer"];
+      $("#page-content").innerHTML=`<div class="page-heading"><div><p class="eyebrow">SYSTEM ADMINISTRATION</p><h1>Manajemen Pengguna</h1><p>Buat akun, tetapkan role, dan reset password pengguna.</p></div><button class="primary" id="create-user">＋ Tambah User</button></div>
+      <div class="panel"><div class="panel-head"><div><h3>Daftar Pengguna</h3><p>${users.length} akun terdaftar</p></div></div><div class="table-wrap"><table><thead><tr><th>Nama</th><th>Username</th><th>Role</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.full_name)}</td><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td><span class="status ${u.is_active?"Active":"Inactive"}">${u.is_active?"Aktif":"Nonaktif"}</span></td><td><button class="action-button" data-reset-user="${Number(u.id)}" data-user-name="${esc(u.full_name)}">Reset Password</button></td></tr>`).join("")}</tbody></table></div></div>
+      <div class="panel user-security-note"><p><strong>Keamanan:</strong> Password minimal 12 karakter. Password tidak ditampilkan kembali setelah disimpan. Reset password tidak otomatis mengakhiri sesi login yang sedang aktif.</p></div>`;
+      $("#create-user").addEventListener("click",()=>openUserDialog(roles));
+      $("#page-content").querySelectorAll("[data-reset-user]").forEach(btn=>btn.addEventListener("click",()=>resetUserPassword(btn.dataset.resetUser,btn.dataset.userName)));
+      return;
+    }
+  if(page==="settings"){
       $("#page-content").innerHTML=`<div class="page-heading"><div><p class="eyebrow">SYSTEM</p><h1>${config.title}</h1><p>${config.description}</p></div></div><div class="panel"><h3>Profil Pengguna</h3><div class="metric-grid"><div class="metric"><div class="label">Nama</div><div class="value" style="font-size:18px">${esc(state.user.full_name)}</div></div><div class="metric"><div class="label">Username</div><div class="value" style="font-size:18px">${esc(state.user.username)}</div></div><div class="metric"><div class="label">Role</div><div class="value" style="font-size:18px">${esc(state.user.role)}</div></div></div><p class="hint">Pengaturan keamanan akun dikelola oleh administrator sistem.</p></div>`;return;
     }
     if(page==="help"){
@@ -113,6 +125,25 @@ function cellValue(key,value){
   if(key==="created_at")return esc(new Date(value+"Z").toLocaleDateString("id-ID"));
   return esc(value);
 }
+function openUserDialog(roles){
+  const fields=$("#form-fields");
+  $("#dialog-title").textContent="Tambah Pengguna";
+  fields.innerHTML=`<label class="field">Nama Lengkap *<input name="full_name" required maxlength="100"></label>
+  <label class="field">Username *<input name="username" required minlength="3" maxlength="50" autocomplete="off"></label>
+  <label class="field">Role *<select name="role" required>${roles.map(r=>'<option value="'+esc(r)+'">'+esc(r)+'</option>').join("")}</select></label>
+  <label class="field">Password Awal *<input name="password" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></label>
+  <p class="hint full">Password minimal 12 karakter. Sampaikan password awal kepada pengguna melalui kanal komunikasi yang aman.</p>`;
+  state.dialogResource={userManagement:true};
+  $("#record-dialog").showModal();
+}
+async function resetUserPassword(id,name){
+  const password=window.prompt("Masukkan password baru untuk "+name+" (minimal 12 karakter).");
+  if(password===null)return;
+  if(password.length<12||password.length>128){toast("Password harus 12–128 karakter.");return}
+  if(!window.confirm("Reset password akun "+name+"?"))return;
+  try{await api("users/"+id+"/reset-password",{method:"POST",body:JSON.stringify({password})});toast("Password berhasil direset.");}
+  catch(error){toast(error.message)}
+}
 async function openDialog(config){
   state.dialogResource=config;$("#dialog-title").textContent="Tambah "+config.title;$("#form-fields").innerHTML="";
   for(const [name,label,type,required,options] of config.fields){
@@ -155,6 +186,7 @@ async function openDialog(config){
 }
 async function saveRecord(event){
   event.preventDefault();const config=state.dialogResource;const data=Object.fromEntries(new FormData(event.currentTarget).entries());
+  if(config.userManagement){try{await api("users",{method:"POST",body:JSON.stringify(data)});$("#record-dialog").close();toast("User berhasil dibuat.");await renderPage("users")}catch(error){toast(error.message)}return}
   if(config.endpoint==="kak"){
     const extraKeys=["division","procurement_type","tender_method","contract_winner","admin","technical","commercial","created_by","checked_by","approved_by","contract_type","contract_duration","delivery_duration","work_duration","work_location","execution_method","technical_specification","brand","material_description","estimated_quantity","contract_scheme","payment_scheme","after_sales_warranty","training","delivery_place","commissioning","provider_responsibility","company_responsibility","sanctions","performance_index","others","work_output","tools_requirement","qualification_certification","work_warranty","risk_classification","reporting_supervision","work_scope","methodology"];
     const details={};for(const key of extraKeys){details[key]=data[key]??"";delete data[key]}
