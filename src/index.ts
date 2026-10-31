@@ -375,6 +375,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       vendor_performance: ["vendor_id"]
     };
     if ((required[resource] || []).some(k => input[k] === undefined || input[k] === "")) return fail("Lengkapi seluruh field wajib.");
+    if (resource === "kak") input.status = "Draft";
     if (resource === "contract_drafts") input.created_by = auth.id;
     const columns = Object.keys(input);
     if (!columns.length) return fail("Tidak ada data yang dapat disimpan.");
