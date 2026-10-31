@@ -217,6 +217,24 @@ async function api(request: Request, env: Env): Promise<Response> {
     return fail("Penyimpanan lampiran belum diaktifkan pada konfigurasi Cloudflare Free. Data transaksi tetap tersimpan di D1; fitur lampiran akan ditambahkan setelah tersedia media penyimpanan.", 501);
   }
 
+  if (path[0] === "ai" && path[1] === "review" && method === "POST") {
+    if (!env.AI) return fail("AI binding belum dikonfigurasi. Aktifkan Workers AI pada Worker preview.", 503);
+    const input = await bodyObject(request);
+    const resource = String(input.resource || "").trim();
+    const id = Number(input.id);
+    const tableByResource: Record<string, string> = { kak: "kak_documents", contracts: "contracts", contract_drafts: "contract_drafts" };
+    const table = tableByResource[resource];
+    if (!table || !Number.isInteger(id) || id < 1) return fail("Pilih jenis dokumen dan ID dokumen yang valid.");
+    const document = await env.DB.prepare("SELECT * FROM " + table + " WHERE id=?").bind(id).first<any>();
+    if (!document) return fail("Dokumen tidak ditemukan.", 404);
+    const instruction = String(input.instruction || "Lakukan review menyeluruh dan identifikasi kekurangan, inkonsistensi, risiko, dan tahapan yang belum terpenuhi.").trim().slice(0, 4000);
+    const response: any = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct", { messages: [
+      { role: "system", content: "Anda adalah AI Procurement Governance Reviewer. Gunakan hanya fakta dalam dokumen. Data yang tidak tersedia harus ditandai BELUM ADA DATA. Periksa kelengkapan administratif, ruang lingkup, spesifikasi/deliverables, jadwal, anggaran, metode pengadaan/evaluasi, syarat komersial, pembayaran, jaminan, risiko hukum/operasional, konsistensi, approval dan bukti pendukung. Untuk kontrak periksa para pihak, objek, nilai, masa berlaku, ruang lingkup, pembayaran, denda/sanksi, jaminan, perubahan, terminasi dan kewajiban. Susun Bahasa Indonesia dengan bagian RINGKASAN, STATUS (Siap ditinjau manusia/Perlu perbaikan/Data tidak cukup), TEMUAN KRITIS, TEMUAN LAIN, CHECKLIST TAHAPAN BELUM TERPENUHI, REKOMENDASI TINDAKAN, dan HAL YANG WAJIB DISETUJUI MANUSIA. Setiap temuan diberi risiko Tinggi/Sedang/Rendah. Jangan mengubah data, memberi approval, menetapkan pemenang, atau menandatangani kontrak." },
+      { role: "user", content: "Jenis dokumen: " + resource + "\nInstruksi: " + instruction + "\nData dokumen JSON: " + JSON.stringify(document).slice(0, 18000) }
+    ] });
+    const result = typeof response === "string" ? response : (response?.response || response?.result || JSON.stringify(response));
+    return json({ ok: true, resource, document_id: id, document_title: document.title || document.kak_no || document.contract_no || document.draft_no || ("Dokumen #" + id), result });
+  }
   if (path[0] === "ai" && method === "POST") {
     if (!env.AI) return fail("AI binding belum dikonfigurasi. Aktifkan Workers AI setelah infrastruktur dasar siap.", 503);
     const input = await bodyObject(request);
