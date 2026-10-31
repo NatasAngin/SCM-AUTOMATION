@@ -1,5 +1,5 @@
 const $ = (s, root=document) => root.querySelector(s);
-const state = { user:null, page:"dashboard", rows:[], dialogResource:null };
+const state = { user:null, page:"dashboard", rows:[], dialogResource:null, notifications:[], notificationOpen:false, notificationTimer:null };
 const resources = {
   sourcing:{title:"Sourcing Request",endpoint:"sourcing",description:"Kelola permintaan pengadaan dari unit kerja.",fields:[["request_no","Nomor Request","text",true],["title","Judul Pengadaan","text",true],["department","Departemen","text"],["estimated_value","Estimasi Nilai (Rp)","number"],["status","Status","select",true,["Draft","Review","RFQ","Evaluation","Awarded","Cancelled"]],["request_date","Tanggal Request","date"]],columns:["request_no","title","department","estimated_value","status","request_date"]},
   vendors:{title:"Vendor Management",endpoint:"vendors",description:"Kelola master data dan informasi penyedia.",fields:[["code","Kode Vendor","text",true],["name","Nama Vendor","text",true],["category","Kategori","text"],["email","Email","email"],["phone","Nomor Telepon","text"],["status","Status","select",true,["Active","Inactive","Pending"]]],columns:["code","name","category","email","phone","status"]},
@@ -30,11 +30,37 @@ async function boot(){
   try{const d=await api("auth/me");state.user=d.user;showApp()}
   catch{$("#login-screen").classList.remove("hidden");$("#app-shell").classList.add("hidden")}
 }
+async function loadNotifications(){
+  try{
+    const result=await api("notifications");
+    state.notifications=result.data||[];
+    const badge=$("#notification-count");
+    const unread=Number(result.unread||0);
+    badge.textContent=unread>99?"99+":String(unread);
+    badge.hidden=unread===0;
+    renderNotificationPanel();
+  }catch(error){console.warn("Notifikasi tidak dapat dimuat:",error.message)}
+}
+function renderNotificationPanel(){
+  const panel=$("#notification-panel");
+  if(!panel)return;
+  panel.classList.toggle("open",state.notificationOpen);
+  const unread=state.notifications.filter(item=>!item.is_read).length;
+  panel.innerHTML='<div class="notification-head"><strong>Notifikasi</strong><button type="button" data-notification-read-all '+(unread?'':'disabled')+'>Tandai semua dibaca</button></div>'+
+    (state.notifications.length?'<div class="notification-list">'+state.notifications.map(item=>'<button type="button" class="notification-item '+(item.is_read?'read':'unread')+'" data-notification-id="'+Number(item.id)+'"><span class="notification-dot"></span><span><strong>'+esc(item.title)+'</strong><small>'+esc(item.message)+'</small><time>'+esc(new Date(item.created_at+"Z").toLocaleString("id-ID"))+'</time></span></button>').join("")+'</div>':'<p class="notification-empty">Belum ada notifikasi.</p>');
+}
+async function markNotificationRead(id){
+  try{await api("notifications/"+id+"/read",{method:"POST",body:"{}"});await loadNotifications()}
+  catch(error){toast(error.message)}
+}
 function showApp(){
   $("#login-screen").classList.add("hidden");$("#app-shell").classList.remove("hidden");
   const userNav=$('[data-page="users"]');if(userNav)userNav.style.display=state.user.role==="Admin"?"flex":"none";
   $("#user-name").textContent=state.user.full_name;$("#user-role").textContent=state.user.role;$("#user-avatar").textContent=(state.user.full_name||"A").slice(0,1).toUpperCase();
   renderPage("dashboard");
+  loadNotifications();
+  if(state.notificationTimer)clearInterval(state.notificationTimer);
+  state.notificationTimer=setInterval(loadNotifications,30000);
 }
 async function renderPage(page){
   state.page=page;document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.page===page));
@@ -195,12 +221,22 @@ async function saveRecord(event){
     data.special_terms=JSON.stringify({type:details.procurement_type,division:details.division,tender_method:details.tender_method,contract_winner:details.contract_winner,checked_by:details.checked_by,approved_by:details.approved_by,details});
   }
   for(const [key,value] of Object.entries(data)){if(["budget","estimated_value","contract_value","vendor_id","kak_id","contract_id","ref_id","value_delta","score","quality_score","delivery_score","compliance_score"].includes(key))data[key]=value===""?null:Number(value)}
-  try{await api(config.endpoint,{method:"POST",body:JSON.stringify(data)});$("#record-dialog").close();toast("Data berhasil disimpan.");await renderResource(config)}
+  try{await api(config.endpoint,{method:"POST",body:JSON.stringify(data)});$("#record-dialog").close();toast("Data berhasil disimpan.");await renderResource(config);await loadNotifications()}
   catch(e){toast(e.message)}
 }
 $("#login-form").addEventListener("submit",async e=>{e.preventDefault();$("#login-error").textContent="";const form=Object.fromEntries(new FormData(e.currentTarget).entries());try{const r=await api("auth/login",{method:"POST",body:JSON.stringify(form)});state.user=r.user;showApp()}catch(err){$("#login-error").textContent=err.message}});
 $("#logout").addEventListener("click",async()=>{await api("auth/logout",{method:"POST",body:"{}"});state.user=null;$("#app-shell").classList.add("hidden");$("#login-screen").classList.remove("hidden")});
 $("#navigation").addEventListener("click",e=>{const button=e.target.closest("[data-page]");if(button)renderPage(button.dataset.page)});
+$("#notification-button").addEventListener("click",()=>{state.notificationOpen=!state.notificationOpen;renderNotificationPanel();if(state.notificationOpen)loadNotifications()});
+$("#notification-panel").addEventListener("click",async e=>{
+  const readAll=e.target.closest("[data-notification-read-all]");
+  if(readAll){try{await api("notifications/read-all",{method:"POST",body:"{}"});await loadNotifications()}catch(error){toast(error.message)}return}
+  const item=e.target.closest("[data-notification-id]");
+  if(item){await markNotificationRead(item.dataset.notificationId)}
+});
+document.addEventListener("click",e=>{
+  if(state.notificationOpen&&!e.target.closest(".notification-wrap")){state.notificationOpen=false;renderNotificationPanel()}
+});
 $("#record-form").addEventListener("submit",saveRecord);
 $("#page-content").addEventListener("click",e=>{const button=e.target.closest("[data-kak-preview]");if(button)openKakPreview(button.dataset.kakPreview)});
 $("#dialog-close").addEventListener("click",()=>$("#record-dialog").close());
