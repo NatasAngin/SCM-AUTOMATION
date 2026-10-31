@@ -198,7 +198,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       const fullName = String(input.full_name || "").trim();
       const role = String(input.role || "").trim();
       const password = String(input.password || "");
-      const allowedRoles = ["Admin", "Section Head", "System & Helpdesk Specialist", "Network & Equipment Specialist", "Viewer"];
+      const allowedRoles = ["Admin", "Section Head", "User", "Viewer"];
       if (!/^[a-z0-9._-]{3,50}$/.test(username)) return fail("Username harus 3–50 karakter: huruf kecil, angka, titik, garis bawah, atau tanda hubung.");
       if (fullName.length < 2 || fullName.length > 100) return fail("Nama lengkap wajib diisi (2–100 karakter).");
       if (!allowedRoles.includes(role)) return fail("Role tidak valid.");
