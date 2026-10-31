@@ -213,6 +213,124 @@ async function api(request: Request, env: Env): Promise<Response> {
     return fail("Rute notifikasi tidak didukung.", 405);
   }
 
+  // Central Approval & Document Routing Center.
+  if (path[0] === "routing") {
+    if (method === "GET" && path.length === 1) {
+      const rows = await env.DB.prepare(`
+        SELECT r.*, u.full_name AS requester,
+          (SELECT COUNT(*) FROM document_route_tasks t WHERE t.route_id=r.id AND t.task_status='Pending') AS pending_tasks,
+          (SELECT t.assignee_role FROM document_route_tasks t WHERE t.route_id=r.id AND t.task_status='Pending' ORDER BY t.step_order LIMIT 1) AS pending_role
+        FROM document_routes r LEFT JOIN users u ON u.id=r.requester_id
+        ORDER BY CASE r.route_status WHEN 'In Review' THEN 0 WHEN 'Revision' THEN 1 WHEN 'In Process' THEN 2 ELSE 3 END, r.updated_at DESC
+        LIMIT 500
+      `).all<any>();
+      const templates = await env.DB.prepare(`
+        SELECT t.id,t.document_type,t.resource,t.display_name,t.description,s.step_order,s.step_key,s.step_name,s.assignee_role,s.action_type
+        FROM routing_templates t LEFT JOIN routing_template_steps s ON s.template_id=t.id
+        WHERE t.is_active=1 ORDER BY t.display_name,s.step_order
+      `).all<any>();
+      const tasks = await env.DB.prepare(`
+        SELECT t.*,r.document_type,r.document_no,r.title,r.route_status
+        FROM document_route_tasks t JOIN document_routes r ON r.id=t.route_id
+        WHERE t.task_status IN ('Pending','In Progress') AND (t.assignee_role=? OR t.assignee_id=? OR ?='Admin')
+        ORDER BY t.created_at
+      `).bind(auth.role,auth.id,auth.role).all<any>();
+      return json({ok:true,data:rows.results||[],templates:templates.results||[],my_tasks:tasks.results||[]});
+    }
+    if (method === "GET" && path.length === 2) {
+      const id=Number(path[1]);
+      if(!Number.isInteger(id)||id<1)return fail("ID routing tidak valid.");
+      const route=await env.DB.prepare("SELECT r.*,u.full_name AS requester FROM document_routes r LEFT JOIN users u ON u.id=r.requester_id WHERE r.id=?").bind(id).first<any>();
+      if(!route)return fail("Routing dokumen tidak ditemukan.",404);
+      const [tasks,events]=await Promise.all([
+        env.DB.prepare("SELECT t.*,u.full_name AS actor_name FROM document_route_tasks t LEFT JOIN users u ON u.id=t.acted_by WHERE t.route_id=? ORDER BY t.step_order").bind(id).all<any>(),
+        env.DB.prepare("SELECT e.*,u.full_name AS actor_name FROM document_route_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.route_id=? ORDER BY e.id DESC LIMIT 100").bind(id).all<any>()
+      ]);
+      return json({ok:true,route,tasks:tasks.results||[],events:events.results||[]});
+    }
+    if (method === "POST" && path.length === 1) {
+      const input=await bodyObject(request);
+      const resource=String(input.resource||"");
+      const id=Number(input.resource_id);
+      const config:Record<string,{type:string,table:string,no:string}> = {
+        sourcing:{type:"Sourcing Request",table:"sourcing_requests",no:"request_no"},
+        kak:{type:"KAK / TOR",table:"kak_documents",no:"kak_no"},
+        vendors:{type:"Vendor Qualification",table:"vendors",no:"code"},
+        contract_drafts:{type:"Draft Contract",table:"contract_drafts",no:"draft_no"},
+        contracts:{type:"Contract",table:"contracts",no:"contract_no"},
+        change_orders:{type:"Change Order",table:"change_orders",no:"change_no"}
+      };
+      const cfg=config[resource];
+      if(!cfg||!Number.isInteger(id)||id<1)return fail("Jenis atau ID dokumen tidak valid.");
+      const doc=await env.DB.prepare("SELECT * FROM "+cfg.table+" WHERE id=?").bind(id).first<any>();
+      if(!doc)return fail("Dokumen sumber tidak ditemukan.",404);
+      if(auth.role!=="Admin" && doc.requester && doc.requester!==auth.full_name && doc.created_by && doc.created_by!==auth.full_name)return fail("Hanya pembuat dokumen atau Admin yang dapat mengajukan routing.",403);
+      const template=await env.DB.prepare("SELECT * FROM routing_templates WHERE document_type=? AND is_active=1").bind(cfg.type).first<any>();
+      if(!template)return fail("Template routing belum tersedia untuk jenis dokumen ini.",409);
+      const existing=await env.DB.prepare("SELECT id,route_status FROM document_routes WHERE resource=? AND resource_id=?").bind(resource,id).first<any>();
+      if(existing && !["Draft","Revision"].includes(existing.route_status))return fail("Dokumen sudah memiliki routing aktif atau selesai.",409);
+      const steps=await env.DB.prepare("SELECT * FROM routing_template_steps WHERE template_id=? ORDER BY step_order").bind(template.id).all<any>();
+      if(!steps.results?.length)return fail("Template routing belum memiliki tahapan.",409);
+      const docNo=String(doc[cfg.no]||("ID-"+id));
+      const title=String(doc.title||doc.name||"Dokumen tanpa judul");
+      const department=String(doc.department||"");
+      let routeId=existing?.id;
+      if(routeId){
+        await env.DB.prepare("DELETE FROM document_route_tasks WHERE route_id=?").bind(routeId).run();
+        await env.DB.prepare("UPDATE document_routes SET route_status='In Review',current_step_order=1,current_step_name=?,submitted_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(steps.results[0].step_name,routeId).run();
+      }else{
+        const ins=await env.DB.prepare("INSERT INTO document_routes(document_type,resource,resource_id,document_no,title,requester_id,requester_name,department,route_status,current_step_order,current_step_name,submitted_at) VALUES(?,?,?,?,?,?,?,?,'In Review',1,?,CURRENT_TIMESTAMP)").bind(cfg.type,resource,id,docNo,title,auth.id,auth.full_name,department,steps.results[0].step_name).run();
+        routeId=Number(ins.meta.last_row_id);
+      }
+      const batch:any[]=[];
+      for(const step of steps.results)batch.push(env.DB.prepare("INSERT INTO document_route_tasks(route_id,step_order,step_key,step_name,assignee_role,task_status) VALUES(?,?,?,?,?,'Pending')").bind(routeId,step.step_order,step.step_key,step.step_name,step.assignee_role));
+      batch.push(env.DB.prepare("INSERT INTO document_route_events(route_id,actor_id,event_type,from_status,to_status,from_step,to_step,note) VALUES(?,?,'SUBMITTED',?,'In Review',?,?,?)").bind(routeId,auth.id,existing?.route_status||"Draft","Draft",steps.results[0].step_name,String(input.note||"").slice(0,3000)));
+      await env.DB.batch(batch);
+      await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_task','Dokumen menunggu pemeriksaan',?, ?, ? FROM users WHERE is_active=1 AND (role=? OR role='Admin')").bind(docNo+" — "+title,resource,id,steps.results[0].assignee_role).run();
+      return json({ok:true,id:routeId,message:"Dokumen berhasil diajukan ke alur "+cfg.type+"."},201);
+    }
+    if (method === "POST" && path.length === 3 && path[2] === "action") {
+      const id=Number(path[1]);
+      if(!Number.isInteger(id)||id<1)return fail("ID routing tidak valid.");
+      const input=await bodyObject(request);
+      const decision=String(input.decision||"").trim();
+      const note=String(input.note||"").trim().slice(0,3000);
+      if(!["Approved","Revision","Rejected","Completed"].includes(decision))return fail("Keputusan routing tidak valid.");
+      if(["Revision","Rejected"].includes(decision)&&!note)return fail("Catatan wajib diisi untuk revisi atau penolakan.");
+      const route=await env.DB.prepare("SELECT * FROM document_routes WHERE id=?").bind(id).first<any>();
+      if(!route)return fail("Routing dokumen tidak ditemukan.",404);
+      if(!["In Review","In Process"].includes(route.route_status))return fail("Dokumen tidak sedang menunggu tindakan.",409);
+      const task=await env.DB.prepare("SELECT * FROM document_route_tasks WHERE route_id=? AND task_status IN ('Pending','In Progress') ORDER BY step_order LIMIT 1").bind(id).first<any>();
+      if(!task)return fail("Tidak ada tugas aktif pada routing ini.",409);
+      if(auth.role!=="Admin" && auth.role!==task.assignee_role && task.assignee_id!==auth.id)return fail("Anda tidak memiliki kewenangan untuk memproses tahapan ini.",403);
+      if(task.action_type==="Process" && decision==="Approved"){} 
+      if(decision==="Revision"||decision==="Rejected"){
+        const nextStatus=decision==="Revision"?"Revision":"Rejected";
+        await env.DB.batch([
+          env.DB.prepare("UPDATE document_route_tasks SET task_status=?,note=?,acted_by=?,acted_at=CURRENT_TIMESTAMP WHERE id=?").bind(decision,note,auth.id,task.id),
+          env.DB.prepare("UPDATE document_route_tasks SET task_status='Skipped' WHERE route_id=? AND step_order>? AND task_status='Pending'").bind(id,task.step_order),
+          env.DB.prepare("UPDATE document_routes SET route_status=?,current_step_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(nextStatus,decision==="Revision"?"Dikembalikan untuk Revisi":"Ditolak",id),
+          env.DB.prepare("INSERT INTO document_route_events(route_id,task_id,actor_id,event_type,from_status,to_status,from_step,to_step,note) VALUES(?,?,?, ?,?,?,?,?,?)").bind(id,task.id,auth.id,decision.toUpperCase(),route.route_status,nextStatus,task.step_name,decision==="Revision"?"Revisi":"Ditolak",note)
+        ]);
+        await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_update',?,?,?,? FROM users WHERE is_active=1 AND (id=? OR role='Admin')").bind("Dokumen "+(decision==="Revision"?"dikembalikan untuk revisi":"ditolak"),route.document_no+" — "+note,route.resource,route.resource_id,route.requester_id).run();
+        return json({ok:true,message:decision==="Revision"?"Dokumen dikembalikan untuk revisi.":"Dokumen ditolak."});
+      }
+      const next=await env.DB.prepare("SELECT * FROM document_route_tasks WHERE route_id=? AND step_order>? ORDER BY step_order LIMIT 1").bind(id,task.step_order).first<any>();
+      const done=!next;
+      const nextStatus=done?"Completed":(next.action_type==="Process"?"In Process":"In Review");
+      await env.DB.batch([
+        env.DB.prepare("UPDATE document_route_tasks SET task_status=?,note=?,acted_by=?,acted_at=CURRENT_TIMESTAMP WHERE id=?").bind(decision==="Completed"?"Completed":"Approved",note,auth.id,task.id),
+        env.DB.prepare("UPDATE document_route_tasks SET task_status='In Progress' WHERE id=?").bind(next?.id||0),
+        env.DB.prepare("UPDATE document_routes SET route_status=?,current_step_order=?,current_step_name=?,completed_at=CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE completed_at END,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(nextStatus,next?.step_order||task.step_order,done?"Completed":next.step_name,done?1:0,id),
+        env.DB.prepare("INSERT INTO document_route_events(route_id,task_id,actor_id,event_type,from_status,to_status,from_step,to_step,note) VALUES(?,?,?,'STEP_APPROVED',?,?,?,?,?)").bind(id,task.id,auth.id,route.route_status,nextStatus,task.step_name,done?"Completed":next.step_name,note)
+      ]);
+      if(next)await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_task','Dokumen menunggu tindak lanjut',?,?,? FROM users WHERE is_active=1 AND (role=? OR role='Admin')").bind(route.document_no+" — "+route.title,route.resource,route.resource_id,next.assignee_role).run();
+      else await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_complete','Proses dokumen selesai',?,?,? FROM users WHERE id=?").bind(route.document_no+" — "+route.title,route.resource,route.resource_id,route.requester_id).run();
+      return json({ok:true,message:done?"Seluruh tahapan routing selesai.":"Tahapan disetujui dan diteruskan ke "+next.step_name+"."});
+    }
+    return fail("Rute routing tidak didukung.",405);
+  }
+
   if (path[0] === "documents") {
     return fail("Penyimpanan lampiran belum diaktifkan pada konfigurasi Cloudflare Free. Data transaksi tetap tersimpan di D1; fitur lampiran akan ditambahkan setelah tersedia media penyimpanan.", 501);
   }
