@@ -145,7 +145,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       env.DB.prepare("SELECT COUNT(*) n FROM kak_documents").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM contracts").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM contract_drafts").first<any>(),
-      env.DB.prepare("SELECT COUNT(*) n FROM approvals WHERE status='Pending'").first<any>(),
+      env.DB.prepare("SELECT (SELECT COUNT(*) FROM approvals WHERE status='Pending') + (SELECT COUNT(*) FROM kak_workflows WHERE workflow_status IN ('Review','Final Approval')) AS n").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM obligations WHERE status IN ('Open','Due Soon','Overdue')").first<any>()
     ]);
     return json({ ok: true, metrics: { vendors: vendors?.n || 0, sourcing: sourcing?.n || 0, kak: kaks?.n || 0, contracts: contracts?.n || 0, contract_drafts: drafts?.n || 0, pending_approvals: approvals?.n || 0, open_obligations: obligations?.n || 0 } });
