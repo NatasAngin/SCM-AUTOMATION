@@ -6,7 +6,6 @@ This directory is the isolated Cloudflare implementation. The original PHP/XAMPP
 
 - Cloudflare Workers: authenticated API and application routing.
 - Cloudflare D1: SQLite-compatible relational data store.
-- Cloudflare R2: uploaded procurement documents and generated files.
 - Workers Static Assets: browser application in `public/`.
 - Workers AI: optional AI integration, enabled only after an AI binding is configured.
 
@@ -18,7 +17,7 @@ The first migration foundation includes:
 - One-time administrator bootstrap endpoint.
 - D1 schema for users, vendors, sourcing requests, KAK, draft contracts, contracts, obligations, change orders, approvals and vendor performance.
 - Authenticated CRUD API for those business modules.
-- R2 upload/download API for documents.
+- Document attachment storage is intentionally deferred; no R2 binding is required for the Free-tier foundation.
 - Responsive browser UI for login, dashboard and the business registers.
 
 The PHP implementation remains the reference for business rules and document structure. The browser print view is an interim PDF route; DOCX generation using the PT BAI reference template is a later migration milestone and must be validated against the original template before it replaces the PHP exporter. Do not delete or overwrite the PHP app during this work.
@@ -28,9 +27,8 @@ The PHP implementation remains the reference for business rules and document str
 Create these resources in the same Cloudflare account as the Worker:
 
 1. D1 database named `scm-automation-db`.
-2. R2 bucket named `scm-automation-documents`.
 
-Then copy the D1 database UUID into `wrangler.jsonc` in the `database_id` field. Keep the binding names `DB` and `DOCUMENTS` unchanged.
+No R2 bucket is required. Document uploads return a clear `501` response until a storage provider is added. Users can still create/print documents in the browser; persistent file attachments are deferred.
 
 ## Local development
 
@@ -42,7 +40,6 @@ From this directory:
 npm install
 npx wrangler login
 npx wrangler d1 create scm-automation-db
-npx wrangler r2 bucket create scm-automation-documents
 ```
 
 Copy the D1 UUID returned by Wrangler into `wrangler.jsonc`. Then apply the schema:
@@ -67,7 +64,7 @@ npx wrangler secret put SESSION_SECRET
 npx wrangler secret put BOOTSTRAP_TOKEN
 ```
 
-Use long, randomly generated values. Deploy the Worker only after D1 and R2 bindings exist.
+Use long, randomly generated values. Deploy the Worker after the D1 binding exists.
 
 After the first successful deployment, create the first administrator by sending a POST request to `/api/auth/bootstrap` with JSON:
 
@@ -98,7 +95,9 @@ Do not connect the migration branch to the production environment yet. Never mer
 - [x] Create isolated migration branch.
 - [x] Add Cloudflare Worker project skeleton and D1 schema.
 - [x] Add first API/authentication layer and application shell.
-- [ ] Provision D1 and R2 resources in Cloudflare.
+- [x] Provision D1 database in Cloudflare.
+- [x] Remove mandatory R2 dependency for Free-tier deployment.
+- [ ] Decide and implement a persistent document-storage option if file attachments are required.
 - [ ] Apply D1 migrations and run API smoke tests.
 - [ ] Complete KAK form parity, approval lifecycle and contract workflows.
 - [ ] Port all remaining modules and role/permission rules.
