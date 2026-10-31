@@ -153,7 +153,6 @@ function tableHtml(rows,columns){
     if((status==="Draft"&&(role==="Admin"||row.requester===state.user?.full_name))||(status==="Revision"&&role==="Admin"))actions+=' <button type="button" class="action-button" data-kak-edit="'+Number(row.id)+'">Edit</button>';
     if(["Draft","Revision"].includes(status))actions+=' <button type="button" class="action-button" data-kak-submit="'+Number(row.id)+'">Ajukan</button>';
     if(status==="Review"&&role==="Section Head")actions+=' <button type="button" class="action-button" data-kak-review="Approved" data-id="'+Number(row.id)+'">Setujui Review</button> <button type="button" class="action-button" data-kak-review="Revision" data-id="'+Number(row.id)+'">Kembalikan Revisi</button>';
-    if(false)actions+=' <button type="button" class="action-button" data-kak-final="'+Number(row.id)+'">Persetujuan Final</button>';
     return '<tr>'+columns.map(c=>'<td>'+(c==="status"?'<span class="status">'+esc(status)+'</span>':cellValue(c,row[c]))+'</td>').join("")+'<td><span class="status">'+esc(wf.current_step||status)+'</span></td><td>'+actions+'</td></tr>';
   }).join("")}</tbody></table>`;
 }
@@ -288,7 +287,6 @@ $("#page-content").addEventListener("click",async e=>{
   const edit=e.target.closest("[data-kak-edit]");if(edit){await editKak(edit.dataset.kakEdit);return}
   const submit=e.target.closest("[data-kak-submit]");if(submit){if(window.confirm("Ajukan KAK ini ke Divisi SCM untuk direview Section Head?"))await kakWorkflowAction(submit.dataset.kakSubmit,"submit");return}
   const review=e.target.closest("[data-kak-review]");if(review){await kakWorkflowAction(review.dataset.id,"review",{decision:review.dataset.kakReview});return}
-  const final=e.target.closest("[data-kak-final]");
 });
 $("#dialog-close").addEventListener("click",()=>$("#record-dialog").close());
 $("#dialog-cancel").addEventListener("click",()=>$("#record-dialog").close());
