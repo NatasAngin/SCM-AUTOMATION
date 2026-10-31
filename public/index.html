@@ -9,7 +9,7 @@
 </head>
 <body>
   <div id="login-screen" class="login-shell">
-    <form id="login-form" class="login-card">
+    <div id="login-card" class="login-card">
       <div class="brand-mark">SCM</div>
       <p class="eyebrow">SMART SOURCING & CONTRACT MANAGEMENT</p>
       <h1>Selamat datang</h1>
@@ -18,6 +18,7 @@
       <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
       <button class="primary full" type="submit">Masuk ke sistem</button>
       <p id="login-error" class="error" role="alert"></p>
+    </form>
       <div class="login-register-link"><span class="muted">Belum memiliki akun?</span> <button id="show-register" class="text-button" type="button">Daftar sekarang</button></div>
       <section id="register-panel" class="hidden">
         <div class="register-divider"></div>
@@ -34,7 +35,7 @@
         <button id="back-to-login" class="text-button" type="button">Kembali ke login</button>
       </section>
       <small class="muted">Akses hanya untuk pengguna yang telah terdaftar.</small>
-    </form>
+    </div>
   </div>
 
   <div id="app-shell" class="app-shell hidden">
