@@ -218,6 +218,12 @@ async function api(request: Request, env: Env): Promise<Response> {
 
   // Central Approval & Document Routing Center.
   if (path[0] === "routing") {
+    const syncSourceStatus = async (resource:string, status:string) => {
+      const tables:Record<string,string> = {sourcing:"sourcing_requests",kak:"kak_documents",vendors:"vendors",contract_drafts:"contract_drafts",contracts:"contracts",change_orders:"change_orders"};
+      const table=tables[resource];
+      if(!table || resource==="kak") return;
+      await env.DB.prepare("UPDATE "+table+" SET status=? WHERE id=(SELECT resource_id FROM document_routes WHERE resource=? ORDER BY id DESC LIMIT 1)").bind(status,resource).run();
+    };
     if (method === "GET" && path.length === 1) {
       const rows = await env.DB.prepare(`
         SELECT r.*, u.full_name AS requester,
@@ -293,6 +299,8 @@ async function api(request: Request, env: Env): Promise<Response> {
       for(const step of steps.results)batch.push(env.DB.prepare("INSERT INTO document_route_tasks(route_id,step_order,step_key,step_name,assignee_role,action_type,task_status) VALUES(?,?,?,?,?,?,'Pending')").bind(routeId,step.step_order,step.step_key,step.step_name,step.assignee_role,step.action_type));
       batch.push(env.DB.prepare("INSERT INTO document_route_events(route_id,actor_id,event_type,from_status,to_status,from_step,to_step,note) VALUES(?,?,'SUBMITTED',?,'In Review',?,?,?)").bind(routeId,auth.id,existing?.route_status||"Draft","Draft",steps.results[0].step_name,String(input.note||"").slice(0,3000)));
       await env.DB.batch(batch);
+      const submittedStatus:Record<string,string>={sourcing:"Review",vendors:"Pending",contract_drafts:"Review",contracts:"Pending Approval",change_orders:"Pending Approval"};
+      if(submittedStatus[resource])await env.DB.prepare("UPDATE "+cfg.table+" SET status=? WHERE id=?").bind(submittedStatus[resource],id).run();
       await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_task','Dokumen menunggu pemeriksaan',?, ?, ? FROM users WHERE is_active=1 AND (role=? OR role='Admin')").bind(docNo+" — "+title,resource,id,steps.results[0].assignee_role).run();
       return json({ok:true,id:routeId,message:"Dokumen berhasil diajukan ke alur "+cfg.type+"."},201);
     }
@@ -320,6 +328,9 @@ async function api(request: Request, env: Env): Promise<Response> {
           env.DB.prepare("UPDATE document_routes SET route_status=?,current_step_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(nextStatus,decision==="Revision"?"Dikembalikan untuk Revisi":"Ditolak",id),
           env.DB.prepare("INSERT INTO document_route_events(route_id,task_id,actor_id,event_type,from_status,to_status,from_step,to_step,note) VALUES(?,?,?, ?,?,?,?,?,?)").bind(id,task.id,auth.id,decision.toUpperCase(),route.route_status,nextStatus,task.step_name,decision==="Revision"?"Revisi":"Ditolak",note)
         ]);
+        const revisionStatus:Record<string,string>={sourcing:"Draft",vendors:"Pending",contract_drafts:"Draft",contracts:"Draft",change_orders:"Draft"};
+        const rejectedStatus:Record<string,string>={sourcing:"Cancelled",vendors:"Inactive",contract_drafts:"Rejected",contracts:"Closed",change_orders:"Rejected"};
+        await syncSourceStatus(route.resource,decision==="Revision"?(revisionStatus[route.resource]||"Draft"):(rejectedStatus[route.resource]||"Rejected"));
         await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_update',?,?,?,? FROM users WHERE is_active=1 AND (id=? OR role='Admin')").bind("Dokumen "+(decision==="Revision"?"dikembalikan untuk revisi":"ditolak"),route.document_no+" — "+note,route.resource,route.resource_id,route.requester_id).run();
         return json({ok:true,message:decision==="Revision"?"Dokumen dikembalikan untuk revisi.":"Dokumen ditolak."});
       }
@@ -332,6 +343,10 @@ async function api(request: Request, env: Env): Promise<Response> {
         env.DB.prepare("UPDATE document_routes SET route_status=?,current_step_order=?,current_step_name=?,completed_at=CASE WHEN ?=1 THEN CURRENT_TIMESTAMP ELSE completed_at END,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(nextStatus,next?.step_order||task.step_order,done?"Completed":next.step_name,done?1:0,id),
         env.DB.prepare("INSERT INTO document_route_events(route_id,task_id,actor_id,event_type,from_status,to_status,from_step,to_step,note) VALUES(?,?,?,'STEP_APPROVED',?,?,?,?,?)").bind(id,task.id,auth.id,route.route_status,nextStatus,task.step_name,done?"Completed":next.step_name,note)
       ]);
+      if(done){
+        const finalStatus:Record<string,string>={sourcing:"Awarded",vendors:"Active",contract_drafts:"Approved",contracts:"Active",change_orders:"Approved"};
+        if(finalStatus[route.resource])await syncSourceStatus(route.resource,finalStatus[route.resource]);
+      }
       if(next)await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_task','Dokumen menunggu tindak lanjut',?,?,? FROM users WHERE is_active=1 AND (role=? OR role='Admin')").bind(route.document_no+" — "+route.title,route.resource,route.resource_id,next.assignee_role).run();
       else await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_complete','Proses dokumen selesai',?,?,? FROM users WHERE id=?").bind(route.document_no+" — "+route.title,route.resource,route.resource_id,route.requester_id).run();
       return json({ok:true,message:done?"Seluruh tahapan routing selesai.":"Tahapan disetujui dan diteruskan ke "+next.step_name+"."});
