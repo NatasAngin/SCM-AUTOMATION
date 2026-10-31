@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS document_route_tasks (
   step_key TEXT NOT NULL,
   step_name TEXT NOT NULL,
   assignee_role TEXT NOT NULL,
+  action_type TEXT NOT NULL DEFAULT 'Review' CHECK(action_type IN ('Review','Process','Approval','Record')),
   assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   task_status TEXT NOT NULL DEFAULT 'Pending'
     CHECK(task_status IN ('Pending','In Progress','Approved','Revision','Rejected','Completed','Skipped')),
