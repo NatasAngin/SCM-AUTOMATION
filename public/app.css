@@ -83,3 +83,29 @@ tbody tr:hover{background:#fafcff}
 @media(max-width:640px){
   .sidebar #navigation{max-height:48vh;overflow-y:auto;overscroll-behavior:contain}
 }
+
+/* Notification center */
+.topbar-actions{display:flex;align-items:center;gap:18px}
+.notification-wrap{position:relative}
+.notification-button{position:relative;width:38px;height:38px;border:1px solid #dce5f0;border-radius:10px;background:#fff;color:#263b59;font-size:20px;cursor:pointer}
+.notification-button:hover{background:#f4f8ff}
+.notification-count{position:absolute;top:-6px;right:-6px;min-width:17px;height:17px;padding:0 4px;border-radius:20px;background:#e34d59;color:#fff;font-size:9px;font-weight:800;display:grid;place-items:center;border:2px solid #fff}
+.notification-count[hidden]{display:none}
+.notification-panel{display:none;position:absolute;right:0;top:48px;width:min(370px,calc(100vw - 28px));max-height:440px;overflow:auto;background:#fff;border:1px solid #dfe6ef;border-radius:12px;box-shadow:0 16px 45px #0b1b3326;z-index:80}
+.notification-panel.open{display:block}
+.notification-head{display:flex;justify-content:space-between;align-items:center;padding:14px 15px;border-bottom:1px solid #edf1f6}
+.notification-head strong{font-size:13px;color:#1b2d48}
+.notification-head button{border:0;background:none;color:#1769e8;font-size:10px;font-weight:700;cursor:pointer}
+.notification-head button:disabled{color:#aab4c2;cursor:default}
+.notification-list{display:grid}
+.notification-item{display:flex;gap:10px;align-items:flex-start;text-align:left;padding:12px 14px;border:0;border-bottom:1px solid #f0f3f7;background:#fff;cursor:pointer;width:100%}
+.notification-item:hover{background:#f7faff}
+.notification-item.unread{background:#f3f7ff}
+.notification-dot{width:8px;height:8px;flex:0 0 8px;margin-top:5px;border-radius:50%;background:#1769e8}
+.notification-item.read .notification-dot{background:#cbd4df}
+.notification-item>span:last-child{display:grid;gap:4px;min-width:0}
+.notification-item strong{font-size:11px;color:#233651}
+.notification-item small{font-size:10px;color:#66758b;overflow-wrap:anywhere}
+.notification-item time{font-size:9px;color:#99a4b3}
+.notification-empty{padding:24px;text-align:center;color:#8491a3;font-size:11px}
+@media(max-width:640px){.topbar-actions{gap:10px}.notification-panel{right:-54px}}
