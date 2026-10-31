@@ -150,7 +150,7 @@ function tableHtml(rows,columns){
     if(state.page!=="kak")return '<tr>'+columns.map(c=>'<td>'+cellValue(c,row[c])+'</td>').join("")+'</tr>';
     const wf=state.kakWorkflows[row.id]?.workflow||{workflow_status:"Draft"},status=wf.workflow_status||"Draft",role=state.user?.role;
     let actions='<button type="button" class="action-button" data-kak-preview="'+Number(row.id)+'">Preview / Cetak PDF</button>';
-    if(["Draft","Revision"].includes(status)&&role==="Admin")actions+=' <button type="button" class="action-button" data-kak-edit="'+Number(row.id)+'">Edit</button>';
+    if((status==="Draft"&&(role==="Admin"||row.requester===state.user?.full_name))||(status==="Revision"&&role==="Admin"))actions+=' <button type="button" class="action-button" data-kak-edit="'+Number(row.id)+'">Edit</button>';
     if(["Draft","Revision"].includes(status))actions+=' <button type="button" class="action-button" data-kak-submit="'+Number(row.id)+'">Ajukan</button>';
     if(status==="Review"&&["Section Head","Procurement"].includes(role))actions+=' <button type="button" class="action-button" data-kak-review="Approved" data-id="'+Number(row.id)+'">Setujui Review</button> <button type="button" class="action-button" data-kak-review="Revision" data-id="'+Number(row.id)+'">Kembalikan Revisi</button>';
     if(status==="Final Approval"&&role==="Authorized Approver")actions+=' <button type="button" class="action-button" data-kak-final="'+Number(row.id)+'">Persetujuan Final</button>';
@@ -166,8 +166,10 @@ async function kakWorkflowAction(id,action,extra={}){
 }
 async function renderDashboardIfVisible(){if(state.page==="dashboard")await renderDashboard()}
 async function editKak(id){
-  if(state.user?.role!=="Admin"){toast("Hanya Admin yang dapat mengedit KAK.");return}
   const row=state.rows.find(x=>Number(x.id)===Number(id));if(!row)return;
+  const status=state.kakWorkflows[id]?.workflow?.workflow_status||"Draft";
+  if(status==="Revision"&&state.user?.role!=="Admin"){toast("Revisi hanya dapat diedit Admin.");return}
+  if(status==="Draft"&&state.user?.role!=="Admin"&&row.requester!==state.user?.full_name){toast("Draft hanya dapat diedit pembuat dokumen atau Admin.");return}
   const cfg=resources.kak;state.kakEditId=id;await openDialog(cfg);
   const meta=(()=>{try{return JSON.parse(row.special_terms||"{}")}catch{return {}}})();
   const details=meta.details||{};
