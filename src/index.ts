@@ -139,19 +139,29 @@ async function api(request: Request, env: Env): Promise<Response> {
   if (isResponse(auth)) return auth;
 
   if (path[0] === "dashboard" && method === "GET") {
-    const [vendors, sourcing, kaks, contracts, drafts, approvals, obligations, draftStatuses, routeStatuses] = await Promise.all([
+    // Core dashboard metrics must remain available even if optional routing
+    // tables have not yet been migrated in the connected D1 database.
+    const [vendors, sourcing, kaks, contracts, drafts, approvals, obligations, draftStatuses] = await Promise.all([
       env.DB.prepare("SELECT COUNT(*) n FROM vendors").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM sourcing_requests").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM kak_documents").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM contracts").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM contract_drafts").first<any>(),
-      env.DB.prepare("SELECT (SELECT COUNT(*) FROM approvals WHERE status='Pending') + (SELECT COUNT(*) FROM document_routes WHERE route_status IN ('In Review','In Process','Revision')) AS n").first<any>(),
+      env.DB.prepare("SELECT COUNT(*) n FROM approvals WHERE status='Pending'").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM obligations WHERE status IN ('Open', 'Due Soon', 'Overdue')").first<any>(),
-      env.DB.prepare("SELECT status, COUNT(*) AS n FROM contract_drafts GROUP BY status").all<any>(),
-      env.DB.prepare("SELECT route_status AS status, COUNT(*) AS n FROM document_routes GROUP BY route_status").all<any>()
+      env.DB.prepare("SELECT status, COUNT(*) AS n FROM contract_drafts GROUP BY status").all<any>()
     ]);
+    let routeStatuses:any = { results: [] };
+    let routePending = 0;
+    try {
+      routeStatuses = await env.DB.prepare("SELECT route_status AS status, COUNT(*) AS n FROM document_routes GROUP BY route_status").all<any>();
+      const pendingRoutes = await env.DB.prepare("SELECT COUNT(*) AS n FROM document_routes WHERE route_status IN ('In Review','In Process','Revision')").first<any>();
+      routePending = Number(pendingRoutes?.n || 0);
+    } catch (routingError) {
+      console.warn("Dashboard routing metrics unavailable; apply routing migrations to D1.", routingError);
+    }
     const countByStatus=(result:any)=>Object.fromEntries((result.results||[]).map((row:any)=>[String(row.status||"Tanpa Status"),Number(row.n||0)]));
-    return json({ ok: true, metrics: { vendors: vendors?.n || 0, sourcing: sourcing?.n || 0, kak: kaks?.n || 0, contracts: contracts?.n || 0, contract_drafts: drafts?.n || 0, pending_approvals: approvals?.n || 0, open_obligations: obligations?.n || 0 }, draft_statuses: countByStatus(draftStatuses), routing_statuses: countByStatus(routeStatuses) });
+    return json({ ok: true, metrics: { vendors: vendors?.n || 0, sourcing: sourcing?.n || 0, kak: kaks?.n || 0, contracts: contracts?.n || 0, contract_drafts: drafts?.n || 0, pending_approvals: Number(approvals?.n || 0) + routePending, open_obligations: obligations?.n || 0 }, draft_statuses: countByStatus(draftStatuses), routing_statuses: countByStatus(routeStatuses) });
   }
 
   // User administration: restricted to Admin role.
