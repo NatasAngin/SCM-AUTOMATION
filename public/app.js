@@ -1,5 +1,5 @@
 const $ = (s, root=document) => root.querySelector(s);
-const state = { user:null, page:"dashboard", rows:[], dialogResource:null, notifications:[], notificationOpen:false, notificationTimer:null };
+const state = { user:null, page:"dashboard", rows:[], dialogResource:null, notifications:[], notificationOpen:false, notificationTimer:null,kakWorkflows:{},kakEditId:null };
 const resources = {
   sourcing:{title:"Sourcing Request",endpoint:"sourcing",description:"Kelola permintaan pengadaan dari unit kerja.",fields:[["request_no","Nomor Request","text",true],["title","Judul Pengadaan","text",true],["department","Departemen","text"],["estimated_value","Estimasi Nilai (Rp)","number"],["status","Status","select",true,["Draft","Review","RFQ","Evaluation","Awarded","Cancelled"]],["request_date","Tanggal Request","date"]],columns:["request_no","title","department","estimated_value","status","request_date"]},
   vendors:{title:"Vendor Management",endpoint:"vendors",description:"Kelola master data dan informasi penyedia.",fields:[["code","Kode Vendor","text",true],["name","Nama Vendor","text",true],["category","Kategori","text"],["email","Email","email"],["phone","Nomor Telepon","text"],["status","Status","select",true,["Active","Inactive","Pending"]]],columns:["code","name","category","email","phone","status"]},
@@ -135,13 +135,45 @@ async function renderVirtualPage(page,config){
 }
 async function renderResource(config){
   try{const result=await api(config.endpoint+"?limit=250");state.rows=result.data||[];
+    if(config.endpoint==="kak"){
+    const editingId=state.kakEditId;
+      const pairs=await Promise.all(state.rows.map(async row=>{try{return [row.id,await api("kak/"+row.id+"/workflow")]}catch(e){return [row.id,{workflow:{workflow_status:row.status==="Approved"?"Final":"Draft"}}]}}));
+      state.kakWorkflows=Object.fromEntries(pairs);
+    }
     $("#page-content").innerHTML=`<div class="page-heading"><div><p class="eyebrow">SCM WORKSPACE</p><h1>${config.title}</h1><p>${config.description}</p></div><button class="primary" id="add-record">＋ Tambah Data</button></div><div class="panel"><div class="panel-head"><div><h3>Register ${config.title}</h3><p>${state.rows.length} data tercatat</p></div></div><div class="table-wrap" id="resource-table">${tableHtml(state.rows,config.columns)}</div></div>`;
-    $("#add-record").addEventListener("click",()=>openDialog(config));
+    $("#add-record").addEventListener("click",()=>{state.kakEditId=null;openDialog(config)});
   }catch(e){$("#page-content").innerHTML='<div class="panel empty">'+esc(e.message)+'</div>'}
 }
 function tableHtml(rows,columns){
   if(!rows?.length)return '<div class="empty">Belum ada data. Gunakan tombol Tambah Data untuk membuat entri pertama.</div>';
-  return `<table><thead><tr>${columns.map(c=>'<th>'+esc(c.replaceAll("_"," ").toUpperCase())+'</th>').join("")}${state.page==="kak"?"<th>AKSI</th>":""}</tr></thead><tbody>${rows.map(row=>'<tr>'+columns.map(c=>'<td>'+cellValue(c,row[c])+'</td>').join("")+(state.page==="kak"?'<td><button type="button" class="action-button" data-kak-preview="'+Number(row.id)+'">Preview / Cetak PDF</button></td>':"")+'</tr>').join("")}</tbody></table>`;
+  return `<table><thead><tr>${columns.map(c=>'<th>'+esc(c.replaceAll("_"," ").toUpperCase())+'</th>').join("")}${state.page==="kak"?"<th>WORKFLOW</th><th>AKSI</th>":""}</tr></thead><tbody>${rows.map(row=>{
+    if(state.page!=="kak")return '<tr>'+columns.map(c=>'<td>'+cellValue(c,row[c])+'</td>').join("")+'</tr>';
+    const wf=state.kakWorkflows[row.id]?.workflow||{workflow_status:"Draft"},status=wf.workflow_status||"Draft",role=state.user?.role;
+    let actions='<button type="button" class="action-button" data-kak-preview="'+Number(row.id)+'">Preview / Cetak PDF</button>';
+    if(["Draft","Revision"].includes(status)&&role==="Admin")actions+=' <button type="button" class="action-button" data-kak-edit="'+Number(row.id)+'">Edit</button>';
+    if(["Draft","Revision"].includes(status))actions+=' <button type="button" class="action-button" data-kak-submit="'+Number(row.id)+'">Ajukan</button>';
+    if(status==="Review"&&["Section Head","Procurement"].includes(role))actions+=' <button type="button" class="action-button" data-kak-review="Approved" data-id="'+Number(row.id)+'">Setujui Review</button> <button type="button" class="action-button" data-kak-review="Revision" data-id="'+Number(row.id)+'">Kembalikan Revisi</button>';
+    if(status==="Final Approval"&&role==="Authorized Approver")actions+=' <button type="button" class="action-button" data-kak-final="'+Number(row.id)+'">Persetujuan Final</button>';
+    return '<tr>'+columns.map(c=>'<td>'+(c==="status"?'<span class="status">'+esc(status)+'</span>':cellValue(c,row[c]))+'</td>').join("")+'<td><span class="status">'+esc(wf.current_step||status)+'</span></td><td>'+actions+'</td></tr>';
+  }).join("")}</tbody></table>`;
+}
+async function kakWorkflowAction(id,action,extra={}){
+  const note=window.prompt(action==="review"?"Catatan pemeriksaan (wajib jika revisi):":"Catatan (opsional):", "");
+  if(note===null)return;
+  if(action==="review"&&extra.decision==="Revision"&&!note.trim()){toast("Catatan revisi wajib diisi.");return}
+  try{const result=await api("kak/"+id+"/workflow",{method:"POST",body:JSON.stringify({action,note,...extra})});toast(result.message||"Workflow diperbarui.");await renderResource(resources.kak);await loadNotifications();await renderDashboardIfVisible()}
+  catch(e){toast(e.message)}
+}
+async function renderDashboardIfVisible(){if(state.page==="dashboard")await renderDashboard()}
+async function editKak(id){
+  if(state.user?.role!=="Admin"){toast("Hanya Admin yang dapat mengedit KAK.");return}
+  const row=state.rows.find(x=>Number(x.id)===Number(id));if(!row)return;
+  const cfg=resources.kak;state.kakEditId=id;await openDialog(cfg);
+  const meta=(()=>{try{return JSON.parse(row.special_terms||"{}")}catch{return {}}})();
+  const details=meta.details||{};
+  const values={...row,division:meta.division||"",procurement_type:meta.type||"",tender_method:meta.tender_method||"",contract_winner:meta.contract_winner||"",created_by:row.requester||"",...details};
+  for(const [key,value] of Object.entries(values)){const el=$('#form-fields [name="'+key+'"]');if(el)el.value=value??""}
+  $("#dialog-title").textContent="Edit KAK — "+row.kak_no;
 }
 
 function openKakPreview(id){
@@ -232,7 +264,7 @@ async function saveRecord(event){
     data.special_terms=JSON.stringify({type:details.procurement_type,division:details.division,tender_method:details.tender_method,contract_winner:details.contract_winner,checked_by:details.checked_by,approved_by:details.approved_by,details});
   }
   for(const [key,value] of Object.entries(data)){if(["budget","estimated_value","contract_value","vendor_id","kak_id","contract_id","ref_id","value_delta","score","quality_score","delivery_score","compliance_score"].includes(key))data[key]=value===""?null:Number(value)}
-  try{await api(config.endpoint,{method:"POST",body:JSON.stringify(data)});$("#record-dialog").close();toast("Data berhasil disimpan.");await renderResource(config);await loadNotifications()}
+  try{if(config.endpoint==="kak"&&state.kakEditId){await api("kak/"+state.kakEditId+"/workflow",{method:"POST",body:JSON.stringify({action:"edit",data,note:"Penyempurnaan isi KAK oleh Admin"})});state.kakEditId=null}else{await api(config.endpoint,{method:"POST",body:JSON.stringify(data)})}$("#record-dialog").close();toast("Data berhasil disimpan.");await renderResource(config);await loadNotifications()}
   catch(e){toast(e.message)}
 }
 $("#login-form").addEventListener("submit",async e=>{e.preventDefault();$("#login-error").textContent="";const form=Object.fromEntries(new FormData(e.currentTarget).entries());try{const r=await api("auth/login",{method:"POST",body:JSON.stringify(form)});state.user=r.user;showApp()}catch(err){$("#login-error").textContent=err.message}});
@@ -249,7 +281,13 @@ document.addEventListener("click",e=>{
   if(state.notificationOpen&&!e.target.closest(".notification-wrap")){state.notificationOpen=false;renderNotificationPanel()}
 });
 $("#record-form").addEventListener("submit",saveRecord);
-$("#page-content").addEventListener("click",e=>{const button=e.target.closest("[data-kak-preview]");if(button)openKakPreview(button.dataset.kakPreview)});
+$("#page-content").addEventListener("click",async e=>{
+  const preview=e.target.closest("[data-kak-preview]");if(preview){openKakPreview(preview.dataset.kakPreview);return}
+  const edit=e.target.closest("[data-kak-edit]");if(edit){await editKak(edit.dataset.kakEdit);return}
+  const submit=e.target.closest("[data-kak-submit]");if(submit){if(window.confirm("Ajukan KAK ini ke Section Head dan Procurement?"))await kakWorkflowAction(submit.dataset.kakSubmit,"submit");return}
+  const review=e.target.closest("[data-kak-review]");if(review){await kakWorkflowAction(review.dataset.id,"review",{decision:review.dataset.kakReview});return}
+  const final=e.target.closest("[data-kak-final]");if(final&&window.confirm("Berikan persetujuan final untuk KAK ini?"))await kakWorkflowAction(final.dataset.kakFinal,"final_approve");
+});
 $("#dialog-close").addEventListener("click",()=>$("#record-dialog").close());
 $("#dialog-cancel").addEventListener("click",()=>$("#record-dialog").close());
 boot();
