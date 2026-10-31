@@ -116,6 +116,24 @@ async function api(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, id: result.meta.last_row_id, message: "Administrator berhasil dibuat. Hapus secret BOOTSTRAP_TOKEN setelah setup." }, 201);
   }
 
+  if (path[0] === "auth" && path[1] === "register" && method === "POST") {
+    const input = await bodyObject(request);
+    const username = String(input.username || "").trim().toLowerCase();
+    const fullName = String(input.full_name || "").trim();
+    const password = String(input.password || "");
+    if (!/^[a-z0-9._-]{3,50}$/.test(username)) return fail("Username harus 3–50 karakter: huruf kecil, angka, titik, garis bawah, atau tanda hubung.");
+    if (fullName.length < 2 || fullName.length > 100) return fail("Nama lengkap wajib diisi (2–100 karakter).");
+    if (password.length < 12 || password.length > 128) return fail("Password harus 12–128 karakter.");
+    const hash = await passwordHash(password);
+    try {
+      const result = await env.DB.prepare("INSERT INTO users(username,password_hash,full_name,role,is_active) VALUES(?,?,?,'User',1)").bind(username, hash, fullName).run();
+      return json({ ok: true, id: result.meta.last_row_id, message: "Pendaftaran berhasil. Silakan masuk menggunakan akun Anda." }, 201);
+    } catch (error) {
+      if (String(error).toLowerCase().includes("unique")) return fail("Username sudah digunakan.", 409);
+      throw error;
+    }
+  }
+
   if (path[0] === "auth" && path[1] === "login" && method === "POST") {
     const input = await bodyObject(request);
     const username = String(input.username || "").trim().toLowerCase();
