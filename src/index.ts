@@ -289,7 +289,8 @@ async function api(request: Request, env: Env): Promise<Response> {
       return json({ok:true,workflow_status:"Final",message:"KAK telah disetujui final."});
     }
     if (action === "edit") {
-      if (auth.role!=="Admin") return fail("Hanya Admin yang dapat mengedit KAK pada tahap revisi.",403);
+      if (status==="Revision" && auth.role!=="Admin") return fail("Hanya Admin yang dapat mengedit KAK pada tahap revisi.",403);
+      if (status==="Draft" && auth.role!=="Admin" && kak.requester!==auth.full_name) return fail("Draft hanya dapat diedit oleh pembuat dokumen atau Admin.",403);
       if (!["Draft","Revision"].includes(status)) return fail("Isi KAK terkunci setelah diajukan. Perubahan hanya melalui tahap revisi.",409);
       const allowed=TABLES.kak.filter(k=>!["status"].includes(k));
       const data=cleanInput(input.data&&typeof input.data==="object"?input.data:{},allowed);
