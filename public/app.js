@@ -1,5 +1,5 @@
 const $ = (s, root=document) => root.querySelector(s);
-const state = { user:null, page:"dashboard", rows:[], dialogResource:null, notifications:[], notificationOpen:false, notificationTimer:null,kakWorkflows:{},kakEditId:null };
+const state = { user:null, page:"dashboard", rows:[], dialogResource:null, notifications:[], notificationOpen:false, notificationTimer:null,kakWorkflows:{},kakEditId:null,editingResourceId:null };
 const resources = {
   sourcing:{title:"Sourcing Request",endpoint:"sourcing",description:"Kelola permintaan pengadaan dari unit kerja.",fields:[["request_no","Nomor Request","text",true],["title","Judul Pengadaan","text",true],["department","Departemen","text"],["estimated_value","Estimasi Nilai (Rp)","number"],["status","Status","select",true,["Draft","Review","RFQ","Evaluation","Awarded","Cancelled"]],["request_date","Tanggal Request","date"]],columns:["request_no","title","department","estimated_value","status","request_date"]},
   vendors:{title:"Vendor Management",endpoint:"vendors",description:"Kelola master data dan informasi penyedia.",fields:[["code","Kode Vendor","text",true],["name","Nama Vendor","text",true],["category","Kategori","text"],["email","Email","email"],["phone","Nomor Telepon","text"],["status","Status","select",true,["Active","Inactive","Pending"]]],columns:["code","name","category","email","phone","status"]},
@@ -188,8 +188,12 @@ async function renderResource(config){
 }
 function tableHtml(rows,columns){
   if(!rows?.length)return '<div class="empty">Belum ada data. Gunakan tombol Tambah Data untuk membuat entri pertama.</div>';
-  return `<table><thead><tr>${columns.map(c=>'<th>'+esc(c.replaceAll("_"," ").toUpperCase())+'</th>').join("")}${state.page==="kak"?"<th>WORKFLOW</th><th>AKSI</th>":""}</tr></thead><tbody>${rows.map(row=>{
-    if(state.page!=="kak")return '<tr>'+columns.map(c=>'<td>'+cellValue(c,row[c])+'</td>').join("")+'</tr>';
+  return `<table><thead><tr>${columns.map(c=>'<th>'+esc(c.replaceAll("_"," ").toUpperCase())+'</th>').join("")}${state.page==="kak"?"<th>WORKFLOW</th><th>AKSI</th>":state.page==="contract_drafts"?"<th>AKSI</th>":""}</tr></thead><tbody>${rows.map(row=>{
+    if(state.page!=="kak"){
+      const cells=columns.map(c=>'<td>'+cellValue(c,row[c])+'</td>').join("");
+      const actions=state.page==="contract_drafts"?'<td><button type="button" class="action-button" data-draft-edit="'+Number(row.id)+'">Edit</button></td>':"";
+      return '<tr>'+cells+actions+'</tr>';
+    }
     const wf=state.kakWorkflows[row.id]?.workflow||{workflow_status:"Draft"},status=wf.workflow_status||"Draft",role=state.user?.role;
     let actions='<button type="button" class="action-button" data-kak-preview="'+Number(row.id)+'">Preview / Cetak PDF</button>';
     if((status==="Draft"&&(role==="Admin"||row.requester===state.user?.full_name))||(status==="Revision"&&role==="Admin"))actions+=' <button type="button" class="action-button" data-kak-edit="'+Number(row.id)+'">Edit</button>';
@@ -258,7 +262,7 @@ async function resetUserPassword(id,name){
   catch(error){toast(error.message)}
 }
 async function openDialog(config){
-  state.dialogResource=config;$("#dialog-title").textContent="Tambah "+config.title;$("#form-fields").innerHTML="";
+  state.dialogResource=config;$("#dialog-title").textContent=(state.editingResourceId?"Edit ":"Tambah ")+config.title;$("#form-fields").innerHTML="";
   for(const [name,label,type,required,options] of config.fields){
     const wrap=document.createElement("label");wrap.className="field"+(type==="textarea"?" full":"");wrap.textContent=label+(required?" *":"");
     let input;
@@ -307,7 +311,7 @@ async function saveRecord(event){
     data.special_terms=JSON.stringify({type:details.procurement_type,division:details.division,tender_method:details.tender_method,contract_winner:details.contract_winner,checked_by:details.checked_by,approved_by:details.approved_by,details});
   }
   for(const [key,value] of Object.entries(data)){if(["budget","estimated_value","contract_value","vendor_id","kak_id","contract_id","ref_id","value_delta","score","quality_score","delivery_score","compliance_score"].includes(key))data[key]=value===""?null:Number(value)}
-  try{if(config.endpoint==="kak"&&state.kakEditId){await api("kak/"+state.kakEditId+"/workflow",{method:"POST",body:JSON.stringify({action:"edit",data,note:"Penyempurnaan isi KAK oleh Admin"})});state.kakEditId=null}else{await api(config.endpoint,{method:"POST",body:JSON.stringify(data)})}$("#record-dialog").close();toast("Data berhasil disimpan.");await renderResource(config);await loadNotifications()}
+  try{if(config.endpoint==="kak"&&state.kakEditId){await api("kak/"+state.kakEditId+"/workflow",{method:"POST",body:JSON.stringify({action:"edit",data,note:"Penyempurnaan isi KAK oleh Admin"})});state.kakEditId=null}else if(state.editingResourceId){await api(config.endpoint+"/"+state.editingResourceId,{method:"PUT",body:JSON.stringify(data)});state.editingResourceId=null}else{await api(config.endpoint,{method:"POST",body:JSON.stringify(data)})}$("#record-dialog").close();toast("Data berhasil disimpan.");await renderResource(config);await loadNotifications();await renderDashboardIfVisible()}
   catch(e){toast(e.message)}
 }
 $("#login-form").addEventListener("submit",async e=>{e.preventDefault();$("#login-error").textContent="";const form=Object.fromEntries(new FormData(e.currentTarget).entries());try{const r=await api("auth/login",{method:"POST",body:JSON.stringify(form)});state.user=r.user;showApp()}catch(err){$("#login-error").textContent=err.message}});
@@ -327,7 +331,15 @@ $("#record-form").addEventListener("submit",saveRecord);
 $("#page-content").addEventListener("click",async e=>{
   const startRoute=e.target.closest("[data-start-route]");if(startRoute){const resource=startRoute.dataset.startRoute,id=Number(startRoute.dataset.startId);if(!window.confirm("Ajukan dokumen ini ke alur pemeriksaan "+resource+"?"))return;try{const r=await api("routing",{method:"POST",body:JSON.stringify({resource,resource_id:id})});toast(r.message);await renderApprovalCenter()}catch(err){toast(err.message)}return}
   const routeAction=e.target.closest("[data-route-action]");if(routeAction){const decision=routeAction.dataset.routeAction,note=window.prompt(decision==="Approved"?"Catatan keputusan (opsional):":"Catatan wajib untuk revisi/penolakan:","");if(note===null)return;try{const r=await api("routing/"+routeAction.dataset.routeId+"/action",{method:"POST",body:JSON.stringify({decision,note})});toast(r.message);await renderApprovalCenter();await loadNotifications()}catch(err){toast(err.message)}return}
-    const preview=e.target.closest("[data-kak-preview]");if(preview){openKakPreview(preview.dataset.kakPreview);return}
+    const draftEdit=e.target.closest("[data-draft-edit]");if(draftEdit){
+    const id=Number(draftEdit.dataset.draftEdit);
+    try{const result=await api("contract_drafts?limit=500"),row=(result.data||[]).find(item=>Number(item.id)===id);if(!row)throw new Error("Draft kontrak tidak ditemukan.");
+      state.editingResourceId=id;await openDialog(resources.contract_drafts);
+      for(const [key,value] of Object.entries(row)){const field=$('#form-fields [name="'+key+'"]');if(field)field.value=value??""}
+      $("#dialog-title").textContent="Edit Draft Contract — "+(row.draft_no||id);
+    }catch(error){state.editingResourceId=null;toast(error.message)}return;
+  }
+  const preview=e.target.closest("[data-kak-preview]");if(preview){openKakPreview(preview.dataset.kakPreview);return}
   const edit=e.target.closest("[data-kak-edit]");if(edit){await editKak(edit.dataset.kakEdit);return}
   const submit=e.target.closest("[data-kak-submit]");if(submit){if(window.confirm("Ajukan KAK ini ke Divisi SCM untuk direview Section Head?"))await kakWorkflowAction(submit.dataset.kakSubmit,"submit");return}
   const review=e.target.closest("[data-kak-review]");if(review){await kakWorkflowAction(review.dataset.id,"review",{decision:review.dataset.kakReview});return}
