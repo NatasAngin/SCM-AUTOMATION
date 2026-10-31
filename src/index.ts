@@ -407,7 +407,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     const note = String(input.note||"").trim().slice(0,3000);
     const current = await env.DB.prepare("SELECT * FROM kak_workflows WHERE kak_id=?").bind(kakId).first<any>();
     const status = current?.workflow_status || "Draft";
-    const notify = async (type:string,title:string,message:string) => env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,?,?,?,'kak',? FROM users WHERE is_active=1").bind(type,title,message,kakId).run();
+    const notify = async (type:string,title:string,message:string) => env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,?,?,?,'kak',? FROM users WHERE is_active=1 AND role<>'User'").bind(type,title,message,kakId).run();
     const event = async (eventType:string,from:string,to:string) => env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(kakId,auth.id,eventType,from,to,note).run();
     if (action === "submit") {
       if (!["Draft","Revision"].includes(status)) return fail("Dokumen hanya dapat diajukan dari status Draft atau Revisi.",409);
@@ -595,7 +595,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       const title = String(input.title || "Tanpa judul");
       const message = [reference, title].filter(Boolean).join(" — ");
       await env.DB.prepare(
-        "INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,?,?,?,?,? FROM users WHERE is_active=1"
+        "INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,?,?,?,?,? FROM users WHERE is_active=1 AND role<>'User'"
       ).bind(event.type, event.label, message, resource, result.meta.last_row_id).run();
     }
     return json({ ok: true, id: result.meta.last_row_id }, 201);
