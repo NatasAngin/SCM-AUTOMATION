@@ -100,15 +100,34 @@ function cellValue(key,value){
   if(key==="created_at")return esc(new Date(value+"Z").toLocaleDateString("id-ID"));
   return esc(value);
 }
-function openDialog(config){
+async function openDialog(config){
   state.dialogResource=config;$("#dialog-title").textContent="Tambah "+config.title;$("#form-fields").innerHTML="";
   for(const [name,label,type,required,options] of config.fields){
     const wrap=document.createElement("label");wrap.className="field"+(type==="textarea"?" full":"");wrap.textContent=label+(required?" *":"");
     let input;
-    if(type==="select"){input=document.createElement("select");input.innerHTML='<option value="">Pilih status</option>'+options.map(o=>'<option>'+esc(o)+'</option>').join("")}
-    else if(type==="textarea"){input=document.createElement("textarea");if(name==="special_terms")input.placeholder='Contoh: {"type":"Material / Barang","details":{"technical_specification":"..."}}'}
+    if(config.endpoint==="contract_drafts" && ["kak_id","vendor_id"].includes(name)){
+      input=document.createElement("select");input.innerHTML='<option value="">-- Pilih '+(name==="kak_id"?"KAK":"Vendor")+' --</option>';
+      try{
+        const list=await api(name==="kak_id"?"kak?limit=500":"vendors?limit=500");
+        for(const row of list.data||[]){const option=document.createElement("option");option.value=row.id;option.textContent=name==="kak_id"?(row.kak_no+" — "+row.title):row.name;input.append(option)}
+      }catch(error){const option=document.createElement("option");option.value="";option.textContent="Data referensi gagal dimuat";input.append(option)}
+      input.dataset.reference=name;
+    }else if(type==="select"){input=document.createElement("select");input.innerHTML='<option value="">Pilih opsi</option>'+options.map(o=>'<option>'+esc(o)+'</option>').join("")}
+    else if(type==="textarea"){input=document.createElement("textarea");if(name==="special_terms")input.placeholder='Detail teknis tambahan'}
     else{input=document.createElement("input");input.type=type}
     input.name=name;input.required=!!required;wrap.append(input);$("#form-fields").append(wrap);
+  }
+  if(config.endpoint==="contract_drafts"){
+    const kakSelect=$('#form-fields [name="kak_id"]');
+    kakSelect?.addEventListener("change",async()=>{
+      const id=kakSelect.value;if(!id)return;
+      try{
+        const result=await api("kak?limit=500"),kak=(result.data||[]).find(x=>String(x.id)===String(id));if(!kak)return;
+        const set=(name,value)=>{const el=$('#form-fields [name="'+name+'"]');if(el&&!el.value)el.value=value??""};
+        set("title",kak.title);set("scope",kak.scope);set("payment_terms",kak.payment_terms);
+        const value=$('#form-fields [name="contract_value"]');if(value&&!value.value)value.value=kak.budget||0;
+      }catch(error){toast("Data KAK tidak dapat dimuat: "+error.message)}
+    });
   }
   $("#record-dialog").showModal();
 }
