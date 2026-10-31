@@ -109,7 +109,7 @@ async function renderVirtualPage(page,config){
       if(state.user.role!=="Admin"){ $("#page-content").innerHTML='<div class="panel empty">Akses User Management hanya untuk Administrator.</div>';return; }
       const result=await api("users");
       const users=result.data||[];
-      const roles=["Admin","Section Head","System & Helpdesk Specialist","Network & Equipment Specialist","Viewer"];
+      const roles=["Admin","Section Head","User","Viewer"];
       $("#page-content").innerHTML=`<div class="page-heading"><div><p class="eyebrow">SYSTEM ADMINISTRATION</p><h1>Manajemen Pengguna</h1><p>Buat akun, tetapkan role, dan reset password pengguna.</p></div><button class="primary" id="create-user">＋ Tambah User</button></div>
       <div class="panel"><div class="panel-head"><div><h3>Daftar Pengguna</h3><p>${users.length} akun terdaftar</p></div></div><div class="table-wrap"><table><thead><tr><th>Nama</th><th>Username</th><th>Role</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.full_name)}</td><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td><span class="status ${u.is_active?"Active":"Inactive"}">${u.is_active?"Aktif":"Nonaktif"}</span></td><td><button class="action-button" data-reset-user="${Number(u.id)}" data-user-name="${esc(u.full_name)}">Reset Password</button></td></tr>`).join("")}</tbody></table></div></div>
       <div class="panel user-security-note"><p><strong>Keamanan:</strong> Password minimal 12 karakter. Password tidak ditampilkan kembali setelah disimpan. Reset password tidak otomatis mengakhiri sesi login yang sedang aktif.</p></div>`;
