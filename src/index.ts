@@ -168,7 +168,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       env.DB.prepare("SELECT COUNT(*) n FROM contracts"+ownerClause).first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM contract_drafts"+ownerClause).first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM approvals WHERE status='Pending'"+(own?" AND created_by="+Number(auth.id):"")).first<any>(),
-      env.DB.prepare("SELECT COUNT(*) n FROM obligations WHERE status IN ('Open', 'Due Soon', 'Overdue')"+ownerClause).first<any>(),
+      env.DB.prepare("SELECT COUNT(*) n FROM obligations WHERE status IN ('Open', 'Due Soon', 'Overdue')" + (own ? " AND created_by=" + Number(auth.id) : "")).first<any>(),
       env.DB.prepare("SELECT status, COUNT(*) AS n FROM contract_drafts"+ownerClause+" GROUP BY status").all<any>()
     ]);
     let routeStatuses:any = { results: [] };
