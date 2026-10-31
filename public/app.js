@@ -53,9 +53,39 @@ async function markNotificationRead(id){
   try{await api("notifications/"+id+"/read",{method:"POST",body:"{}"});await loadNotifications()}
   catch(error){toast(error.message)}
 }
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+let idleLogoutTimer = null;
+let idleListenersAttached = false;
+function stopIdleLogoutTimer(){
+  if(idleLogoutTimer!==null){clearTimeout(idleLogoutTimer);idleLogoutTimer=null;}
+}
+function resetIdleLogoutTimer(){
+  if(!state.user)return;
+  stopIdleLogoutTimer();
+  idleLogoutTimer=setTimeout(()=>logoutUser(true),IDLE_TIMEOUT_MS);
+}
+async function logoutUser(isAutomatic=false){
+  stopIdleLogoutTimer();
+  if(state.notificationTimer){clearInterval(state.notificationTimer);state.notificationTimer=null;}
+  try{await api("auth/logout",{method:"POST",body:"{}"});}catch(error){console.warn("Logout request could not be completed:",error.message);}
+  state.user=null;
+  state.notifications=[];
+  $("#app-shell").classList.add("hidden");
+  $("#login-screen").classList.remove("hidden");
+  if(isAutomatic)$("#login-error").textContent="Sesi Anda telah berakhir karena tidak ada aktivitas selama 30 menit. Silakan login kembali.";
+}
+function attachIdleActivityListeners(){
+  if(idleListenersAttached)return;
+  idleListenersAttached=true;
+  ["pointerdown","pointermove","keydown","scroll","touchstart","click"].forEach(eventName=>{
+    document.addEventListener(eventName,resetIdleLogoutTimer,{passive:true});
+  });
+}
 function showApp(){
   $("#login-screen").classList.add("hidden");$("#app-shell").classList.remove("hidden");
   const userNav=$('[data-page="users"]');if(userNav)userNav.style.display=state.user.role==="Admin"?"flex":"none";
+  attachIdleActivityListeners();
+  resetIdleLogoutTimer();
   $("#user-name").textContent=state.user.full_name;$("#user-role").textContent=state.user.role;$("#user-avatar").textContent=(state.user.full_name||"A").slice(0,1).toUpperCase();
   renderPage("dashboard");
   loadNotifications();
@@ -332,7 +362,7 @@ $("#show-register").addEventListener("click",()=>{$("#register-panel").classList
 $("#back-to-login").addEventListener("click",()=>{$("#register-panel").classList.add("hidden");$("#show-register").closest(".login-register-link").classList.remove("hidden");$("#login-form").classList.remove("hidden");$("#register-error").textContent="";});
 $("#register-form").addEventListener("submit",async e=>{e.preventDefault();const form=Object.fromEntries(new FormData(e.currentTarget).entries());$("#register-error").textContent="";if(form.password!==form.password_confirm){$("#register-error").textContent="Konfirmasi password tidak sama.";return}try{await api("auth/register",{method:"POST",body:JSON.stringify({full_name:form.full_name,username:form.username,password:form.password})});e.currentTarget.reset();$("#register-panel").classList.add("hidden");$("#show-register").closest(".login-register-link").classList.remove("hidden");$("#login-form").classList.remove("hidden");$("#login-form [name=username]").value=form.username;$("#login-error").textContent="Pendaftaran berhasil. Silakan login.";$("#login-error").classList.remove("error");}catch(error){$("#register-error").textContent=error.message}});
 $("#login-form").addEventListener("submit",async e=>{e.preventDefault();$("#login-error").textContent="";const form=Object.fromEntries(new FormData(e.currentTarget).entries());try{const r=await api("auth/login",{method:"POST",body:JSON.stringify(form)});state.user=r.user;showApp()}catch(err){$("#login-error").textContent=err.message}});
-$("#logout").addEventListener("click",async()=>{await api("auth/logout",{method:"POST",body:"{}"});state.user=null;$("#app-shell").classList.add("hidden");$("#login-screen").classList.remove("hidden")});
+$("#logout").addEventListener("click",()=>logoutUser(false));
 $("#navigation").addEventListener("click",e=>{const button=e.target.closest("[data-page]");if(button)renderPage(button.dataset.page)});
 $("#notification-button").addEventListener("click",()=>{state.notificationOpen=!state.notificationOpen;renderNotificationPanel();if(state.notificationOpen)loadNotifications()});
 $("#notification-panel").addEventListener("click",async e=>{
