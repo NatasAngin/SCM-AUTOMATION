@@ -167,7 +167,7 @@ async function renderApprovalCenter(){
         ${metric("Selesai",rows.filter(r=>["Approved","Completed"].includes(r.route_status)).length,"Routing dituntaskan")}
       </div>
       <div class="panel"><div class="panel-head"><div><h3>Inbox Tugas Saya</h3><p>Tahapan yang dapat diproses sesuai role akun Anda</p></div><span class="status">${tasks.length} tugas</span></div>
-        ${tasks.length?`<div class="table-wrap"><table><thead><tr><th>Jenis</th><th>Nomor</th><th>Dokumen</th><th>Tahapan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${tasks.map(t=>'<tr><td>'+esc(t.document_type)+'</td><td>'+esc(t.document_no||"—")+'</td><td>'+esc(t.title)+'</td><td>'+esc(t.step_name)+'</td><td>'+statusPill(t.task_status)+'</td><td>'+(["Process","Record"].includes(t.action_type)?'<button class="action-button" data-route-action="Completed" data-route-id="'+t.route_id+'">Tandai Selesai</button>':'<button class="action-button" data-route-action="Approved" data-route-id="'+t.route_id+'">Setujui / Lanjut</button> <button class="action-button" data-route-action="Revision" data-route-id="'+t.route_id+'">Revisi</button> <button class="action-button" data-route-action="Rejected" data-route-id="'+t.route_id+'">Tolak</button>')+'</td></tr>').join("")}</tbody></table></div>`:'<div class="empty">Tidak ada tugas routing yang menunggu tindakan Anda.</div>'}
+        ${tasks.length?`<div class="table-wrap"><table><thead><tr><th>Jenis</th><th>Nomor</th><th>Dokumen</th><th>Tahapan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${tasks.map(t=>'<tr><td>'+esc(t.document_type)+'</td><td>'+esc(t.document_no||"—")+'</td><td>'+esc(t.title)+'</td><td>'+esc(t.step_name)+'</td><td>'+statusPill(t.task_status)+'</td><td>'+(t.document_type==="KAK / TOR"?'<button class="action-button" data-approval-kak-preview="'+Number((kaks.data||[]).find(k=>k.kak_no===t.document_no)?.id||0)+'">Preview KAK</button> ':"")+(["Process","Record"].includes(t.action_type)?'<button class="action-button" data-route-action="Completed" data-route-id="'+t.route_id+'">Tandai Selesai</button>':'<button class="action-button" data-route-action="Approved" data-route-id="'+t.route_id+'">Setujui / Lanjut</button> <button class="action-button" data-route-action="Revision" data-route-id="'+t.route_id+'">Revisi</button> <button class="action-button" data-route-action="Rejected" data-route-id="'+t.route_id+'">Tolak</button>')+'</td></tr>').join("")}</tbody></table></div>`:'<div class="empty">Tidak ada tugas routing yang menunggu tindakan Anda.</div>'}
       </div>
       <div class="panel"><div class="panel-head"><div><h3>Dokumen Belum Diajukan</h3><p>Pilih dokumen untuk memulai alur pemeriksaan sesuai jenisnya</p></div><span class="status">${sources.length} dokumen</span></div>
         ${sources.length?`<div class="table-wrap"><table><thead><tr><th>Jenis Dokumen</th><th>Nomor</th><th>Judul</th><th>Status Modul</th><th>Aksi</th></tr></thead><tbody>${sources.map(d=>'<tr><td>'+esc(d.type)+'</td><td>'+esc(d.no||"—")+'</td><td>'+esc(d.title)+'</td><td>'+statusPill(d.status||"Draft")+'</td><td><button class="action-button" data-start-route="'+d.resource+'" data-start-id="'+d.id+'">Ajukan Routing</button></td></tr>').join("")}</tbody></table></div>`:'<div class="empty">Semua dokumen yang memenuhi kriteria sudah memiliki routing.</div>'}
@@ -207,6 +207,15 @@ function tableHtml(rows,columns){
     return '<tr>'+columns.map(c=>'<td>'+(c==="status"?'<span class="status">'+esc(status)+'</span>':cellValue(c,row[c]))+'</td>').join("")+'<td><span class="status">'+esc(wf.current_step||status)+'</span></td><td>'+actions+'</td></tr>';
   }).join("")}</tbody></table>`;
 }
+async function openApprovalKakPreview(id){
+  try{
+    const result=await api("kak?limit=250");
+    const row=(result.data||[]).find(item=>Number(item.id)===Number(id));
+    if(!row)throw new Error("Dokumen KAK tidak ditemukan atau tidak dapat diakses.");
+    openKakPreview(id,[row]);
+  }catch(error){toast(error.message||"Gagal memuat preview KAK.");}
+}
+
 async function kakWorkflowAction(id,action,extra={}){
   const note=window.prompt(action==="review"?"Catatan pemeriksaan (wajib jika revisi):":"Catatan (opsional):", "");
   if(note===null)return;
@@ -228,8 +237,8 @@ async function editKak(id){
   $("#dialog-title").textContent="Edit KAK — "+row.kak_no;
 }
 
-function openKakPreview(id){
-  const row=state.rows.find(item=>Number(item.id)===Number(id));
+function openKakPreview(id, sourceRows=state.rows){
+  const row=sourceRows.find(item=>Number(item.id)===Number(id));
   if(!row){toast("Data KAK tidak ditemukan.");return}
   let meta={};try{meta=JSON.parse(row.special_terms||"{}")}catch(error){toast("Metadata KAK tidak valid.");return}
   const details=meta.details||{};
@@ -335,6 +344,8 @@ document.addEventListener("click",e=>{
 $("#record-form").addEventListener("submit",saveRecord);
 $("#page-content").addEventListener("click",async e=>{
   const startRoute=e.target.closest("[data-start-route]");if(startRoute){const resource=startRoute.dataset.startRoute,id=Number(startRoute.dataset.startId);if(!window.confirm("Ajukan dokumen ini ke alur pemeriksaan "+resource+"?"))return;try{const r=await api("routing",{method:"POST",body:JSON.stringify({resource,resource_id:id})});toast(r.message);await renderApprovalCenter()}catch(err){toast(err.message)}return}
+  const approvalPreview=e.target.closest("[data-approval-kak-preview]");
+  if(approvalPreview){const id=Number(approvalPreview.dataset.approvalKakPreview);if(id>0)await openApprovalKakPreview(id);else toast("Dokumen KAK untuk tugas ini tidak ditemukan.");return}
   const routeAction=e.target.closest("[data-route-action]");if(routeAction){const decision=routeAction.dataset.routeAction,note=window.prompt(decision==="Approved"?"Catatan keputusan (opsional):":"Catatan wajib untuk revisi/penolakan:","");if(note===null)return;try{const r=await api("routing/"+routeAction.dataset.routeId+"/action",{method:"POST",body:JSON.stringify({decision,note})});toast(r.message);await renderApprovalCenter();await loadNotifications()}catch(err){toast(err.message)}return}
     const draftEdit=e.target.closest("[data-draft-edit]");if(draftEdit){
     const id=Number(draftEdit.dataset.draftEdit);
