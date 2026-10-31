@@ -60,8 +60,8 @@ function cookie(value: string, maxAge: number): string {
 async function passwordHash(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const material = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 210000, hash: "SHA-256" }, material, 256);
-  return `pbkdf2$210000$${b64(salt)}$${b64(new Uint8Array(bits))}`;
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, material, 256);
+  return `pbkdf2$100000$${b64(salt)}$${b64(new Uint8Array(bits))}`;
 }
 async function passwordVerify(password: string, stored: string): Promise<boolean> {
   const [scheme, rounds, saltText, hashText] = stored.split("$");
