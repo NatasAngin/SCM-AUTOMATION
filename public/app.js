@@ -64,9 +64,10 @@ function showApp(){
 }
 async function renderPage(page){
   state.page=page;document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.page===page));
-  const config=resources[page];$("#page-title").textContent=page==="dashboard"?"Dashboard":page==="users"?"User Management":(config?.title||"");
+  const config=resources[page];$("#page-title").textContent=page==="dashboard"?"Dashboard":page==="users"?"User Management":page==="approvals"?"Approval & Document Routing Center":(config?.title||"");
   $("#page-content").innerHTML='<div class="loading">Memuat data...</div>';
   if(page==="dashboard"){await renderDashboard();return}
+  if(page==="approvals"){await renderApprovalCenter();return}
   if(["contract_monitoring","reports","autopilot","ai_settings","settings","users","help"].includes(page)){await renderVirtualPage(page,config);return}
   await renderResource(config);
 }
@@ -133,6 +134,47 @@ async function renderVirtualPage(page,config){
     $("#page-content").innerHTML=`<div class="page-heading"><div><p class="eyebrow">EXECUTIVE PROCUREMENT REPORT</p><h1>${config.title}</h1><p>${config.description}</p></div><button class="primary" onclick="window.print()">Cetak Laporan</button></div><div class="metric-grid"><div class="metric"><div class="label">Total Kontrak</div><div class="value">${rows.length}</div></div><div class="metric"><div class="label">Kontrak Aktif</div><div class="value">${active.length}</div></div><div class="metric"><div class="label">Nilai Kontrak Aktif</div><div class="value" style="font-size:20px">${esc(money(total))}</div></div><div class="metric"><div class="label">Obligations</div><div class="value">${obs.length}</div></div></div><div class="panel"><h3>Register Kontrak</h3>${tableHtml(rows,["contract_no","title","contract_value","start_date","end_date","status"])}</div>`;
   }catch(e){$("#page-content").innerHTML='<div class="panel empty">'+esc(e.message)+'</div>'}
 }
+
+async function renderApprovalCenter(){
+  try{
+    const [routing,sourcing,kaks,vendors,drafts,contracts,changes]=await Promise.all([
+      api("routing"),api("sourcing?limit=250"),api("kak?limit=250"),api("vendors?limit=250"),
+      api("contract_drafts?limit=250"),api("contracts?limit=250"),api("change_orders?limit=250")
+    ]);
+    const rows=routing.data||[],templates=routing.templates||[],tasks=routing.my_tasks||[];
+    const routed=new Set(rows.map(r=>r.resource+":"+r.resource_id));
+    const sources=[
+      ...(sourcing.data||[]).map(d=>({resource:"sourcing",id:d.id,no:d.request_no,title:d.title,type:"Sourcing Request",status:d.status})),
+      ...(kaks.data||[]).filter(d=>!["Approved","Cancelled"].includes(d.status)).map(d=>({resource:"kak",id:d.id,no:d.kak_no,title:d.title,type:"KAK / TOR",status:d.status})),
+      ...(vendors.data||[]).filter(d=>d.status==="Pending").map(d=>({resource:"vendors",id:d.id,no:d.code,title:d.name,type:"Vendor Qualification",status:d.status})),
+      ...(drafts.data||[]).map(d=>({resource:"contract_drafts",id:d.id,no:d.draft_no,title:d.title,type:"Draft Contract",status:d.status})),
+      ...(contracts.data||[]).filter(d=>d.status==="Draft"||d.status==="Pending Approval").map(d=>({resource:"contracts",id:d.id,no:d.contract_no,title:d.title,type:"Contract",status:d.status})),
+      ...(changes.data||[]).map(d=>({resource:"change_orders",id:d.id,no:d.change_no,title:d.title,type:"Change Order",status:d.status}))
+    ].filter(d=>!routed.has(d.resource+":"+d.id));
+    const grouped={};
+    for(const row of rows)(grouped[row.document_type]??=[]).push(row);
+    const statusPill=status=>'<span class="status">'+esc(status)+'</span>';
+    $("#page-content").innerHTML=`<div class="page-heading"><div><p class="eyebrow">GOVERNANCE & DOCUMENT CONTROL</p><h1>Approval & Document Routing Center</h1><p>Pusat pemantauan dokumen, tahapan pemeriksaan, keputusan, dan riwayat proses Divisi SCM.</p></div><button class="action-button" id="refresh-routing">↻ Refresh</button></div>
+      <div class="metric-grid">
+        ${metric("Total Dokumen",rows.length,"Terdaftar dalam routing")}
+        ${metric("Menunggu Review",rows.filter(r=>r.route_status==="In Review").length,"Menunggu tindakan")}
+        ${metric("Revisi",rows.filter(r=>r.route_status==="Revision").length,"Perlu perbaikan")}
+        ${metric("Selesai",rows.filter(r=>["Approved","Completed"].includes(r.route_status)).length,"Routing dituntaskan")}
+      </div>
+      <div class="panel"><div class="panel-head"><div><h3>Inbox Tugas Saya</h3><p>Tahapan yang dapat diproses sesuai role akun Anda</p></div><span class="status">${tasks.length} tugas</span></div>
+        ${tasks.length?`<div class="table-wrap"><table><thead><tr><th>Jenis</th><th>Nomor</th><th>Dokumen</th><th>Tahapan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>${tasks.map(t=>'<tr><td>'+esc(t.document_type)+'</td><td>'+esc(t.document_no||"—")+'</td><td>'+esc(t.title)+'</td><td>'+esc(t.step_name)+'</td><td>'+statusPill(t.task_status)+'</td><td><button class="action-button" data-route-action="Approved" data-route-id="'+t.route_id+'">Setujui / Lanjut</button> <button class="action-button" data-route-action="Revision" data-route-id="'+t.route_id+'">Revisi</button> <button class="action-button" data-route-action="Rejected" data-route-id="'+t.route_id+'">Tolak</button></td></tr>').join("")}</tbody></table></div>`:'<div class="empty">Tidak ada tugas routing yang menunggu tindakan Anda.</div>'}
+      </div>
+      <div class="panel"><div class="panel-head"><div><h3>Dokumen Belum Diajukan</h3><p>Pilih dokumen untuk memulai alur pemeriksaan sesuai jenisnya</p></div><span class="status">${sources.length} dokumen</span></div>
+        ${sources.length?`<div class="table-wrap"><table><thead><tr><th>Jenis Dokumen</th><th>Nomor</th><th>Judul</th><th>Status Modul</th><th>Aksi</th></tr></thead><tbody>${sources.map(d=>'<tr><td>'+esc(d.type)+'</td><td>'+esc(d.no||"—")+'</td><td>'+esc(d.title)+'</td><td>'+statusPill(d.status||"Draft")+'</td><td><button class="action-button" data-start-route="'+d.resource+'" data-start-id="'+d.id+'">Ajukan Routing</button></td></tr>').join("")}</tbody></table></div>`:'<div class="empty">Semua dokumen yang memenuhi kriteria sudah memiliki routing.</div>'}
+      </div>
+      <div class="panel"><div class="panel-head"><div><h3>Register Routing Dokumen</h3><p>Dokumen dikelompokkan berdasarkan jenis dan ditampilkan sesuai tahap terakhir</p></div></div>
+        ${rows.length?Object.entries(grouped).map(([type,items])=>'<section class="routing-group"><h3>'+esc(type)+' <span class="muted">('+items.length+')</span></h3><div class="table-wrap"><table><thead><tr><th>Nomor</th><th>Judul</th><th>Pemohon</th><th>Tahap Saat Ini</th><th>Status Routing</th><th>Update</th></tr></thead><tbody>'+items.map(r=>'<tr><td>'+esc(r.document_no||"—")+'</td><td>'+esc(r.title)+'</td><td>'+esc(r.requester_name||r.requester||"—")+'</td><td>'+esc(r.current_step_name)+'</td><td>'+statusPill(r.route_status)+'</td><td>'+esc(new Date(r.updated_at+"Z").toLocaleString("id-ID"))+'</td></tr>').join("")+'</tbody></table></div></section>').join(""):'<div class="empty">Belum ada dokumen yang masuk ke Approval & Routing Center.</div>'}
+      </div>
+      <div class="panel"><div class="panel-head"><div><h3>Konfigurasi Alur per Jenis Dokumen</h3><p>Template alur aktif yang menjadi dasar routing</p></div></div><div class="table-wrap"><table><thead><tr><th>Jenis Dokumen</th><th>Tahap</th><th>Penanggung Jawab</th><th>Tipe Tindakan</th></tr></thead><tbody>${templates.map(t=>'<tr><td>'+esc(t.display_name)+'</td><td>'+esc(t.step_name||"Belum dikonfigurasi")+'</td><td>'+esc(t.assignee_role||"—")+'</td><td>'+esc(t.action_type||"—")+'</td></tr>').join("")}</tbody></table></div></div>`;
+    $("#refresh-routing").addEventListener("click",()=>renderApprovalCenter());
+  }catch(e){$("#page-content").innerHTML='<div class="panel empty">'+esc(e.message)+'</div>';return}
+}
+
 async function renderResource(config){
   try{const result=await api(config.endpoint+"?limit=250");state.rows=result.data||[];
     if(config.endpoint==="kak"){
@@ -283,7 +325,9 @@ document.addEventListener("click",e=>{
 });
 $("#record-form").addEventListener("submit",saveRecord);
 $("#page-content").addEventListener("click",async e=>{
-  const preview=e.target.closest("[data-kak-preview]");if(preview){openKakPreview(preview.dataset.kakPreview);return}
+  const startRoute=e.target.closest("[data-start-route]");if(startRoute){const resource=startRoute.dataset.startRoute,id=Number(startRoute.dataset.startId);if(!window.confirm("Ajukan dokumen ini ke alur pemeriksaan "+resource+"?"))return;try{const r=await api("routing",{method:"POST",body:JSON.stringify({resource,resource_id:id})});toast(r.message);await renderApprovalCenter()}catch(err){toast(err.message)}return}
+  const routeAction=e.target.closest("[data-route-action]");if(routeAction){const decision=routeAction.dataset.routeAction,note=window.prompt(decision==="Approved"?"Catatan keputusan (opsional):":"Catatan wajib untuk revisi/penolakan:","");if(note===null)return;try{const r=await api("routing/"+routeAction.dataset.routeId+"/action",{method:"POST",body:JSON.stringify({decision,note})});toast(r.message);await renderApprovalCenter();await loadNotifications()}catch(err){toast(err.message)}return}
+    const preview=e.target.closest("[data-kak-preview]");if(preview){openKakPreview(preview.dataset.kakPreview);return}
   const edit=e.target.closest("[data-kak-edit]");if(edit){await editKak(edit.dataset.kakEdit);return}
   const submit=e.target.closest("[data-kak-submit]");if(submit){if(window.confirm("Ajukan KAK ini ke Divisi SCM untuk direview Section Head?"))await kakWorkflowAction(submit.dataset.kakSubmit,"submit");return}
   const review=e.target.closest("[data-kak-review]");if(review){await kakWorkflowAction(review.dataset.id,"review",{decision:review.dataset.kakReview});return}
