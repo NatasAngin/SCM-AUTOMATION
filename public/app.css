@@ -71,3 +71,15 @@ tbody tr:hover{background:#fafcff}
 @media(max-width:900px){.sidebar{width:220px}.main{margin-left:0}.content{padding:20px}.topbar{padding:0 20px}}
 @media(max-width:640px){.sidebar{position:relative;width:100%;height:auto;max-height:none}.app-shell{display:block}.sidebar #navigation{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:220px;overflow:auto}.nav-caption{grid-column:1/-1;padding:10px 14px 4px}.nav-item{width:auto;margin:2px 6px;padding:9px;font-size:10px}.brand{height:64px}.sidebar-bottom{display:none}.topbar{height:64px;padding:0 14px}.content{padding:16px 12px}.page-heading{align-items:flex-start;flex-direction:column}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.form-grid{grid-template-columns:1fr}.field:has(textarea){grid-column:span 1}.record-dialog form{padding:14px}}
 @media print{.sidebar,.topbar,.page-heading button,.dialog-actions,.toast{display:none!important}.main{margin:0!important}.content{padding:0!important;max-width:none!important}.panel,.metric{box-shadow:none;break-inside:avoid}body{background:#fff}}
+
+/* Sidebar navigation: allow vertical scrolling without moving the workspace */
+@media(min-width:641px){
+  .sidebar{height:100vh;min-height:0;overflow:hidden}
+  .sidebar #navigation{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding-bottom:12px;scrollbar-width:thin;scrollbar-color:#526783 transparent}
+  .sidebar #navigation::-webkit-scrollbar{width:6px}
+  .sidebar #navigation::-webkit-scrollbar-thumb{background:#526783;border-radius:8px}
+  .sidebar-bottom{flex:0 0 auto;margin-top:10px}
+}
+@media(max-width:640px){
+  .sidebar #navigation{max-height:48vh;overflow-y:auto;overscroll-behavior:contain}
+}
