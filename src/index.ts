@@ -366,6 +366,25 @@ async function api(request: Request, env: Env): Promise<Response> {
         env.DB.prepare("UPDATE kak_documents SET status='Review' WHERE id=?").bind(kakId),
         env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(?,?,'SUBMITTED',?,?,?)").bind(kakId,auth.id,status,"Review",note)
       ]);
+      const kakTemplate=await env.DB.prepare("SELECT id FROM routing_templates WHERE document_type='KAK / TOR' AND is_active=1").first<any>();
+      if(kakTemplate){
+        const prior=await env.DB.prepare("SELECT id FROM document_routes WHERE resource='kak' AND resource_id=?").bind(kakId).first<any>();
+        let routeId=prior?.id;
+        if(routeId){
+          await env.DB.prepare("DELETE FROM document_route_tasks WHERE route_id=?").bind(routeId).run();
+          await env.DB.prepare("UPDATE document_routes SET route_status='In Review',current_step_order=1,current_step_name='Review Section Head SCM',submitted_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(routeId).run();
+        }else{
+          const created=await env.DB.prepare("INSERT INTO document_routes(document_type,resource,resource_id,document_no,title,requester_id,requester_name,department,route_status,current_step_order,current_step_name,submitted_at) VALUES('KAK / TOR','kak',?,?,?,?,?,?,'In Review',1,'Review Section Head SCM',CURRENT_TIMESTAMP)").bind(kakId,kak.kak_no,kak.title,auth.id,auth.full_name,"").run();
+          routeId=Number(created.meta.last_row_id);
+        }
+        const step=await env.DB.prepare("SELECT * FROM routing_template_steps WHERE template_id=? ORDER BY step_order LIMIT 1").bind(kakTemplate.id).first<any>();
+        if(step){
+          await env.DB.batch([
+            env.DB.prepare("INSERT INTO document_route_tasks(route_id,step_order,step_key,step_name,assignee_role,action_type,task_status) VALUES(?,?,?,?,?,?,'In Progress')").bind(routeId,step.step_order,step.step_key,step.step_name,step.assignee_role,step.action_type),
+            env.DB.prepare("INSERT INTO document_route_events(route_id,actor_id,event_type,from_status,to_status,from_step,to_step,note) VALUES(?,?,'KAK_SUBMITTED',?,'In Review',?,?,?)").bind(routeId,auth.id,status,"Draft",step.step_name,note)
+          ]);
+        }
+      }
       await notify("kak_submitted","KAK diajukan untuk pemeriksaan",kak.kak_no+" — "+kak.title);
       return json({ok:true,workflow_status:"Review",message:"KAK berhasil diajukan ke Divisi SCM untuk direview Section Head."});
     }
@@ -381,6 +400,14 @@ async function api(request: Request, env: Env): Promise<Response> {
       if(decision==="Revision"){
         await env.DB.prepare("UPDATE kak_workflows SET workflow_status='Revision',current_step='Admin Revision',revision_note=?,updated_at=CURRENT_TIMESTAMP WHERE kak_id=?").bind(note,kakId).run();
         await env.DB.prepare("UPDATE kak_documents SET status='Draft' WHERE id=?").bind(kakId).run();
+        const route=await env.DB.prepare("SELECT id FROM document_routes WHERE resource='kak' AND resource_id=?").bind(kakId).first<any>();
+        if(route){
+          await env.DB.batch([
+            env.DB.prepare("UPDATE document_route_tasks SET task_status='Revision',note=?,acted_by=?,acted_at=CURRENT_TIMESTAMP WHERE route_id=? AND task_status IN ('Pending','In Progress')").bind(note,auth.id,route.id),
+            env.DB.prepare("UPDATE document_routes SET route_status='Revision',current_step_name='Dikembalikan untuk Revisi',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(route.id),
+            env.DB.prepare("INSERT INTO document_route_events(route_id,actor_id,event_type,from_status,to_status,from_step,to_step,note) VALUES(?,?,'REVISION_REQUESTED','In Review','Revision','Review Section Head SCM','Revisi',?)").bind(route.id,auth.id,note)
+          ]);
+        }
         await event("REVISION_REQUESTED","Review","Revision");
         await notify("kak_revision","KAK dikembalikan untuk revisi",kak.kak_no+" — "+(note||"Perlu perbaikan"));
         return json({ok:true,workflow_status:"Revision",message:"KAK dikembalikan kepada Admin untuk revisi."});
@@ -392,6 +419,14 @@ async function api(request: Request, env: Env): Promise<Response> {
           env.DB.prepare("UPDATE kak_documents SET status='Approved' WHERE id=?").bind(kakId),
           env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(? ,?,'FINAL_APPROVED','Review','Final',?)").bind(kakId,auth.id,note)
         ]);
+        const route=await env.DB.prepare("SELECT id FROM document_routes WHERE resource='kak' AND resource_id=?").bind(kakId).first<any>();
+        if(route){
+          await env.DB.batch([
+            env.DB.prepare("UPDATE document_route_tasks SET task_status='Approved',note=?,acted_by=?,acted_at=CURRENT_TIMESTAMP WHERE route_id=? AND task_status IN ('Pending','In Progress')").bind(note,auth.id,route.id),
+            env.DB.prepare("UPDATE document_routes SET route_status='Approved',current_step_name='Completed',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(route.id),
+            env.DB.prepare("INSERT INTO document_route_events(route_id,actor_id,event_type,from_status,to_status,from_step,to_step,note) VALUES(?,?,'KAK_APPROVED','In Review','Approved','Review Section Head SCM','Completed',?)").bind(route.id,auth.id,note)
+          ]);
+        }
         await notify("kak_final","KAK disetujui Divisi SCM",kak.kak_no+" — "+kak.title);
         return json({ok:true,workflow_status:"Final",message:"KAK disetujui oleh Section Head Divisi SCM."});
       }
