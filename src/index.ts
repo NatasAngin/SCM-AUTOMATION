@@ -164,7 +164,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       const fullName = String(input.full_name || "").trim();
       const role = String(input.role || "").trim();
       const password = String(input.password || "");
-      const allowedRoles = ["Admin", "Section Head", "Procurement", "Authorized Approver", "System & Helpdesk Specialist", "Network & Equipment Specialist", "Viewer"];
+      const allowedRoles = ["Admin", "Section Head", "System & Helpdesk Specialist", "Network & Equipment Specialist", "Viewer"];
       if (!/^[a-z0-9._-]{3,50}$/.test(username)) return fail("Username harus 3–50 karakter: huruf kecil, angka, titik, garis bawah, atau tanda hubung.");
       if (fullName.length < 2 || fullName.length > 100) return fail("Nama lengkap wajib diisi (2–100 karakter).");
       if (!allowedRoles.includes(role)) return fail("Role tidak valid.");
@@ -217,7 +217,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     return fail("Penyimpanan lampiran belum diaktifkan pada konfigurasi Cloudflare Free. Data transaksi tetap tersimpan di D1; fitur lampiran akan ditambahkan setelah tersedia media penyimpanan.", 501);
   }
 
-  // KAK/TOR workflow: dual review (Section Head + Procurement), Admin-only revisions, authorized final approval.
+  // KAK/TOR workflow: User -> SCM Section Head -> Final; Admin-only revisions.
   if (path[0] === "kak" && path[1] && path[2] === "workflow") {
     const kakId = Number(path[1]);
     if (!Number.isInteger(kakId) || kakId < 1) return fail("ID KAK tidak valid.");
@@ -241,18 +241,18 @@ async function api(request: Request, env: Env): Promise<Response> {
       if (!["Draft","Revision"].includes(status)) return fail("Dokumen hanya dapat diajukan dari status Draft atau Revisi.",409);
       if (status === "Revision" && auth.role !== "Admin") return fail("Hanya Admin yang berhak mengedit dan mengajukan ulang hasil revisi.",403);
       await env.DB.batch([
-        env.DB.prepare("INSERT INTO kak_workflows(kak_id,workflow_status,current_step,submitted_by,updated_at) VALUES(?,'Review','Dual Review',?,CURRENT_TIMESTAMP) ON CONFLICT(kak_id) DO UPDATE SET workflow_status='Review',current_step='Dual Review',submitted_by=excluded.submitted_by,revision_note=NULL,updated_at=CURRENT_TIMESTAMP").bind(kakId,auth.id),
+        env.DB.prepare("INSERT INTO kak_workflows(kak_id,workflow_status,current_step,submitted_by,updated_at) VALUES(?,'Review','Dual Review',?,CURRENT_TIMESTAMP) ON CONFLICT(kak_id) DO UPDATE SET workflow_status='Review',current_step='SCM Section Head',submitted_by=excluded.submitted_by,revision_note=NULL,updated_at=CURRENT_TIMESTAMP").bind(kakId,auth.id),
         env.DB.prepare("DELETE FROM kak_workflow_reviews WHERE kak_id=?").bind(kakId),
-        env.DB.prepare("INSERT INTO kak_workflow_reviews(kak_id,reviewer_role,status) VALUES(?,'Section Head','Pending'),(?,'Procurement','Pending')").bind(kakId,kakId),
+        env.DB.prepare("INSERT INTO kak_workflow_reviews(kak_id,reviewer_role,status) VALUES(?,'Section Head','Pending')").bind(kakId,kakId),
         env.DB.prepare("UPDATE kak_documents SET status='Review' WHERE id=?").bind(kakId),
         env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(?,?,'SUBMITTED',?,?,?)").bind(kakId,auth.id,status,"Review",note)
       ]);
       await notify("kak_submitted","KAK diajukan untuk pemeriksaan",kak.kak_no+" — "+kak.title);
-      return json({ok:true,workflow_status:"Review",message:"KAK berhasil diajukan ke Section Head dan Procurement."});
+      return json({ok:true,workflow_status:"Review",message:"KAK berhasil diajukan ke Divisi SCM untuk direview Section Head."});
     }
     if (action === "review") {
       if (status !== "Review") return fail("KAK tidak sedang dalam tahap pemeriksaan.",409);
-      if (!["Section Head","Procurement"].includes(auth.role)) return fail("Pemeriksaan hanya dapat dilakukan Section Head atau Procurement.",403);
+      if (auth.role !== "Section Head") return fail("Pemeriksaan KAK hanya dapat dilakukan Section Head Divisi SCM.",403);
       const decision=String(input.decision||"").trim();
       if (!["Approved","Revision"].includes(decision)) return fail("Keputusan pemeriksa tidak valid.");
       const task=await env.DB.prepare("SELECT id,status FROM kak_workflow_reviews WHERE kak_id=? AND reviewer_role=?").bind(kakId,auth.role).first<any>();
@@ -268,26 +268,18 @@ async function api(request: Request, env: Env): Promise<Response> {
       }
       const pending=await env.DB.prepare("SELECT COUNT(*) AS n FROM kak_workflow_reviews WHERE kak_id=? AND status='Pending'").bind(kakId).first<any>();
       if((pending?.n||0)===0){
-        await env.DB.prepare("UPDATE kak_workflows SET workflow_status='Final Approval',current_step='Authorized Approver',updated_at=CURRENT_TIMESTAMP WHERE kak_id=?").bind(kakId).run();
-        await event("DUAL_REVIEW_COMPLETED","Review","Final Approval");
-        await notify("kak_final_approval","KAK menunggu persetujuan final",kak.kak_no+" — "+kak.title);
-        return json({ok:true,workflow_status:"Final Approval",message:"Kedua pemeriksa menyetujui. KAK diteruskan ke pejabat berwenang."});
+        await env.DB.batch([
+          env.DB.prepare("UPDATE kak_workflows SET workflow_status='Final',current_step='Completed',final_approved_by=?,final_approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE kak_id=?").bind(auth.id,kakId),
+          env.DB.prepare("UPDATE kak_documents SET status='Approved' WHERE id=?").bind(kakId),
+          env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(? ,?,'FINAL_APPROVED','Review','Final',?)").bind(kakId,auth.id,note)
+        ]);
+        await notify("kak_final","KAK disetujui Divisi SCM",kak.kak_no+" — "+kak.title);
+        return json({ok:true,workflow_status:"Final",message:"KAK disetujui oleh Section Head Divisi SCM."});
       }
       await event("REVIEW_APPROVED","Review","Review");
-      await notify("kak_review_approved","Pemeriksaan KAK disetujui",kak.kak_no+" — "+auth.role);
-      return json({ok:true,workflow_status:"Review",message:"Keputusan tersimpan. Menunggu pemeriksa lainnya."});
+      return json({ok:true,workflow_status:"Review",message:"Keputusan review tersimpan."});
     }
-    if (action === "final_approve") {
-      if (status!=="Final Approval") return fail("KAK belum menyelesaikan kedua pemeriksaan.",409);
-      if (auth.role !== "Authorized Approver") return fail("Persetujuan final hanya untuk Authorized Approver.",403);
-      await env.DB.batch([
-        env.DB.prepare("UPDATE kak_workflows SET workflow_status='Final',current_step='Completed',final_approved_by=?,final_approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE kak_id=?").bind(auth.id,kakId),
-        env.DB.prepare("UPDATE kak_documents SET status='Approved' WHERE id=?").bind(kakId),
-        env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(?,?,'FINAL_APPROVED','Final Approval','Final',?)").bind(kakId,auth.id,note)
-      ]);
-      await notify("kak_final","KAK disetujui final",kak.kak_no+" — "+kak.title);
-      return json({ok:true,workflow_status:"Final",message:"KAK telah disetujui final."});
-    }
+    if (action === "final_approve") return fail("Persetujuan final dilakukan langsung oleh Section Head saat review.",410);
     if (action === "edit") {
       if (status==="Revision" && auth.role!=="Admin") return fail("Hanya Admin yang dapat mengedit KAK pada tahap revisi.",403);
       if (status==="Draft" && auth.role!=="Admin" && kak.requester!==auth.full_name) return fail("Draft hanya dapat diedit oleh pembuat dokumen atau Admin.",403);
