@@ -1,0 +1,8 @@
+<?php
+session_start(); require_once __DIR__.'/config/database.php';
+if(isset($_SESSION['user'])){header('Location:index.php');exit;} $error='';
+if($_SERVER['REQUEST_METHOD']==='POST'){
+$u=trim($_POST['username']??'');$p=$_POST['password']??'';
+$s=$pdo->prepare("SELECT * FROM users WHERE username=? AND is_active=1 LIMIT 1");$s->execute([$u]);$user=$s->fetch();
+if($user&&password_verify($p,$user['password_hash'])){session_regenerate_id(true);unset($user['password_hash']);$_SESSION['user']=$user;header('Location:index.php');exit;}$error='Username atau password salah.';}
+?><!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SCM V1 Login</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"><link rel="stylesheet" href="public/css/app.css"></head><body class="login-bg"><div class="card login-card shadow"><div class="card-body p-4"><h3 class="fw-bold">SCM V1</h3><p class="text-muted">Sourcing & Contract Management</p><?php if($error):?><div class="alert alert-danger"><?=$error?></div><?php endif;?><form method="post"><input class="form-control mb-3" name="username" placeholder="Username" required><input class="form-control mb-3" type="password" name="password" placeholder="Password" required><button class="btn btn-primary w-100">Sign In</button></form><small class="text-muted d-block mt-3">Demo: admin / admin123</small></div></div></body></html>
