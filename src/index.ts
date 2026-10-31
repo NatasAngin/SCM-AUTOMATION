@@ -151,6 +151,48 @@ async function api(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, metrics: { vendors: vendors?.n || 0, sourcing: sourcing?.n || 0, kak: kaks?.n || 0, contracts: contracts?.n || 0, contract_drafts: drafts?.n || 0, pending_approvals: approvals?.n || 0, open_obligations: obligations?.n || 0 } });
   }
 
+  // User administration: restricted to Admin role.
+  if (path[0] === "users") {
+    if (auth.role !== "Admin") return fail("Akses hanya untuk Administrator.", 403);
+    if (method === "GET" && path.length === 1) {
+      const rows = await env.DB.prepare("SELECT id,username,full_name,role,is_active,created_at FROM users ORDER BY full_name COLLATE NOCASE").all();
+      return json({ ok: true, data: rows.results || [] });
+    }
+    if (method === "POST" && path.length === 1) {
+      const input = await bodyObject(request);
+      const username = String(input.username || "").trim().toLowerCase();
+      const fullName = String(input.full_name || "").trim();
+      const role = String(input.role || "").trim();
+      const password = String(input.password || "");
+      const allowedRoles = ["Admin", "Section Head", "System & Helpdesk Specialist", "Network & Equipment Specialist", "Viewer"];
+      if (!/^[a-z0-9._-]{3,50}$/.test(username)) return fail("Username harus 3–50 karakter: huruf kecil, angka, titik, garis bawah, atau tanda hubung.");
+      if (fullName.length < 2 || fullName.length > 100) return fail("Nama lengkap wajib diisi (2–100 karakter).");
+      if (!allowedRoles.includes(role)) return fail("Role tidak valid.");
+      if (password.length < 12 || password.length > 128) return fail("Password harus 12–128 karakter.");
+      const hash = await passwordHash(password);
+      try {
+        const result = await env.DB.prepare("INSERT INTO users(username,password_hash,full_name,role,is_active) VALUES(?,?,?,?,1)").bind(username, hash, fullName, role).run();
+        return json({ ok: true, id: result.meta.last_row_id, message: "User berhasil dibuat." }, 201);
+      } catch (error) {
+        if (String(error).toLowerCase().includes("unique")) return fail("Username sudah digunakan.", 409);
+        throw error;
+      }
+    }
+    if (method === "POST" && path.length === 3 && path[2] === "reset-password") {
+      const id = Number(path[1]);
+      if (!Number.isInteger(id) || id < 1) return fail("ID user tidak valid.");
+      const input = await bodyObject(request);
+      const password = String(input.password || "");
+      if (password.length < 12 || password.length > 128) return fail("Password baru harus 12–128 karakter.");
+      const target = await env.DB.prepare("SELECT id FROM users WHERE id=?").bind(id).first<any>();
+      if (!target) return fail("User tidak ditemukan.", 404);
+      const hash = await passwordHash(password);
+      await env.DB.prepare("UPDATE users SET password_hash=? WHERE id=?").bind(hash, id).run();
+      return json({ ok: true, message: "Password user berhasil direset. Sesi login aktif user tersebut dapat tetap berlaku sampai kedaluwarsa." });
+    }
+    return fail("Metode atau rute user tidak didukung.", 405);
+  }
+
   if (path[0] === "documents") {
     return fail("Penyimpanan lampiran belum diaktifkan pada konfigurasi Cloudflare Free. Data transaksi tetap tersimpan di D1; fitur lampiran akan ditambahkan setelah tersedia media penyimpanan.", 501);
   }
