@@ -109,3 +109,5 @@ tbody tr:hover{background:#fafcff}
 .notification-item time{font-size:9px;color:#99a4b3}
 .notification-empty{padding:24px;text-align:center;color:#8491a3;font-size:11px}
 @media(max-width:640px){.topbar-actions{gap:10px}.notification-panel{right:-54px}}
+
+.ai-review-result{white-space:pre-wrap;line-height:1.7;color:#26364d;font-size:13px;overflow-wrap:anywhere;max-height:70vh;overflow:auto;padding:4px 0}.ai-review-result.muted{color:#8390a3}
