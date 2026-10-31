@@ -64,10 +64,10 @@ function showApp(){
 }
 async function renderPage(page){
   state.page=page;document.querySelectorAll(".nav-item").forEach(b=>b.classList.toggle("active",b.dataset.page===page));
-  const config=resources[page];$("#page-title").textContent=page==="dashboard"?"Dashboard":config.title;
+  const config=resources[page];$("#page-title").textContent=page==="dashboard"?"Dashboard":page==="users"?"User Management":(config?.title||"");
   $("#page-content").innerHTML='<div class="loading">Memuat data...</div>';
   if(page==="dashboard"){await renderDashboard();return}
-  if(["contract_monitoring","reports","autopilot","ai_settings","settings","help"].includes(page)){await renderVirtualPage(page,config);return}
+  if(["contract_monitoring","reports","autopilot","ai_settings","settings","users","help"].includes(page)){await renderVirtualPage(page,config);return}
   await renderResource(config);
 }
 async function renderDashboard(){
