@@ -260,7 +260,7 @@ async function api(request: Request, env: Env): Promise<Response> {
           (SELECT COUNT(*) FROM document_route_tasks t WHERE t.route_id=r.id AND t.task_status='Pending') AS pending_tasks,
           (SELECT t.assignee_role FROM document_route_tasks t WHERE t.route_id=r.id AND t.task_status='Pending' ORDER BY t.step_order LIMIT 1) AS pending_role
         FROM document_routes r LEFT JOIN users u ON u.id=r.requester_id
-        " + (auth.role === "User" ? "WHERE r.requester_id=" + Number(auth.id) : "") + "
+        ${auth.role === "User" ? "WHERE r.requester_id=" + Number(auth.id) : ""}
         ORDER BY CASE r.route_status WHEN 'In Review' THEN 0 WHEN 'Revision' THEN 1 WHEN 'In Process' THEN 2 ELSE 3 END, r.updated_at DESC
         LIMIT 500
       `).all<any>();
@@ -272,9 +272,9 @@ async function api(request: Request, env: Env): Promise<Response> {
       const tasks = await env.DB.prepare(`
         SELECT t.*,r.document_type,r.document_no,r.title,r.route_status
         FROM document_route_tasks t JOIN document_routes r ON r.id=t.route_id
-        WHERE t.task_status IN ('Pending','In Progress') AND (t.assignee_role=? OR t.assignee_id=? OR ?='Admin')
+        WHERE t.task_status IN ('Pending','In Progress') AND (t.assignee_role=? OR t.assignee_id=? OR ?='Admin') AND (?<>'User' OR r.requester_id=?)
         ORDER BY t.created_at
-      `).bind(auth.role,auth.id,auth.role).all<any>();
+      `).bind(auth.role,auth.id,auth.role,auth.role,auth.id).all<any>();
       return json({ok:true,data:rows.results||[],templates:templates.results||[],my_tasks:tasks.results||[]});
     }
     if (method === "GET" && path.length === 2) {
@@ -605,6 +605,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     const id = Number(path[1]);
     if (!Number.isInteger(id) || id < 1) return fail("ID tidak valid.");
     const input = cleanInput(await bodyObject(request), fields);
+    if (auth.role === "User" && resource !== "vendors") input.created_by = auth.id;
     const columns = Object.keys(input);
     if (!columns.length) return fail("Tidak ada perubahan.");
     const assignments = columns.map(k => `${k}=?`).join(",");
