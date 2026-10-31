@@ -124,7 +124,16 @@ async function openDialog(config){
       try{
         const result=await api("kak?limit=500"),kak=(result.data||[]).find(x=>String(x.id)===String(id));if(!kak)return;
         const set=(name,value)=>{const el=$('#form-fields [name="'+name+'"]');if(el&&!el.value)el.value=value??""};
-        set("title",kak.title);set("scope",kak.scope);set("payment_terms",kak.payment_terms);
+        set("title",kak.title);
+        let detailText="";
+        try{
+          const meta=JSON.parse(kak.special_terms||"{}"),details=meta.details||{};
+          detailText=Object.entries(details)
+            .filter(([key,value])=>!["division","created_by","checked_by","approved_by","tender_method","contract_winner","admin","technical","commercial"].includes(key)&&String(value||"").trim())
+            .map(([key,value])=>key.replaceAll("_"," ").toUpperCase()+"\n"+value).join("\n\n");
+        }catch(error){console.warn("Metadata KAK tidak dapat dibaca",error)}
+        const scopeText=[kak.scope,detailText].filter(Boolean).join("\n\n");
+        set("scope",scopeText);set("payment_terms",kak.payment_terms);
         const value=$('#form-fields [name="contract_value"]');if(value&&!value.value)value.value=kak.budget||0;
       }catch(error){toast("Data KAK tidak dapat dimuat: "+error.message)}
     });
