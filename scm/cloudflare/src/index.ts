@@ -1,6 +1,5 @@
 export interface Env {
   DB: D1Database;
-  DOCUMENTS: R2Bucket;
   ASSETS: Fetcher;
   SESSION_SECRET: string;
   BOOTSTRAP_TOKEN?: string;
@@ -152,24 +151,8 @@ async function api(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, metrics: { vendors: vendors?.n || 0, sourcing: sourcing?.n || 0, kak: kaks?.n || 0, contracts: contracts?.n || 0, contract_drafts: drafts?.n || 0, pending_approvals: approvals?.n || 0, open_obligations: obligations?.n || 0 } });
   }
 
-  if (path[0] === "documents" && path[1] === "upload" && method === "POST") {
-    const form = await request.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) return fail("File tidak ditemukan.");
-    if (file.size > 20 * 1024 * 1024) return fail("Ukuran file maksimum 20 MB.");
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const key = `uploads/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-    await env.DOCUMENTS.put(key, file.stream(), { httpMetadata: { contentType: file.type || "application/octet-stream" }, customMetadata: { originalName: file.name, uploadedBy: auth.username } });
-    return json({ ok: true, key, name: file.name, size: file.size }, 201);
-  }
-  if (path[0] === "documents" && path[1] && method === "GET") {
-    const object = await env.DOCUMENTS.get(path.slice(1).join("/"));
-    if (!object) return fail("Dokumen tidak ditemukan.", 404);
-    const headers = new Headers();
-    object.writeHttpMetadata(headers);
-    headers.set("etag", object.httpEtag);
-    headers.set("cache-control", "private, no-store");
-    return new Response(object.body, { headers });
+  if (path[0] === "documents") {
+    return fail("Penyimpanan lampiran belum diaktifkan pada konfigurasi Cloudflare Free. Data transaksi tetap tersimpan di D1; fitur lampiran akan ditambahkan setelah tersedia media penyimpanan.", 501);
   }
 
   if (path[0] === "ai" && method === "POST") {
