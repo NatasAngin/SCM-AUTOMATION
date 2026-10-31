@@ -139,16 +139,19 @@ async function api(request: Request, env: Env): Promise<Response> {
   if (isResponse(auth)) return auth;
 
   if (path[0] === "dashboard" && method === "GET") {
-    const [vendors, sourcing, kaks, contracts, drafts, approvals, obligations] = await Promise.all([
+    const [vendors, sourcing, kaks, contracts, drafts, approvals, obligations, draftStatuses, routeStatuses] = await Promise.all([
       env.DB.prepare("SELECT COUNT(*) n FROM vendors").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM sourcing_requests").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM kak_documents").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM contracts").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM contract_drafts").first<any>(),
-      env.DB.prepare("SELECT (SELECT COUNT(*) FROM approvals WHERE status='Pending') + (SELECT COUNT(*) FROM document_routes WHERE route_status='In Review') AS n").first<any>(),
-      env.DB.prepare("SELECT COUNT(*) n FROM obligations WHERE status IN ('Open','Due Soon','Overdue')").first<any>()
+      env.DB.prepare("SELECT (SELECT COUNT(*) FROM approvals WHERE status='Pending') + (SELECT COUNT(*) FROM document_routes WHERE route_status IN ('In Review','In Process','Revision')) AS n").first<any>(),
+      env.DB.prepare("SELECT COUNT(*) n FROM obligations WHERE status IN ('Open', 'Due Soon', 'Overdue')").first<any>(),
+      env.DB.prepare("SELECT status, COUNT(*) AS n FROM contract_drafts GROUP BY status").all<any>(),
+      env.DB.prepare("SELECT route_status AS status, COUNT(*) AS n FROM document_routes GROUP BY route_status").all<any>()
     ]);
-    return json({ ok: true, metrics: { vendors: vendors?.n || 0, sourcing: sourcing?.n || 0, kak: kaks?.n || 0, contracts: contracts?.n || 0, contract_drafts: drafts?.n || 0, pending_approvals: approvals?.n || 0, open_obligations: obligations?.n || 0 } });
+    const countByStatus=(result:any)=>Object.fromEntries((result.results||[]).map((row:any)=>[String(row.status||"Tanpa Status"),Number(row.n||0)]));
+    return json({ ok: true, metrics: { vendors: vendors?.n || 0, sourcing: sourcing?.n || 0, kak: kaks?.n || 0, contracts: contracts?.n || 0, contract_drafts: drafts?.n || 0, pending_approvals: approvals?.n || 0, open_obligations: obligations?.n || 0 }, draft_statuses: countByStatus(draftStatuses), routing_statuses: countByStatus(routeStatuses) });
   }
 
   // User administration: restricted to Admin role.
