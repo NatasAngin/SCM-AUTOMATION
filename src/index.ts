@@ -12,13 +12,13 @@ type FieldMap = Record<string, string[]>;
 
 const TABLES: FieldMap = {
   vendors: ["code", "name", "category", "email", "phone", "status"],
-  sourcing: ["request_no", "title", "department", "estimated_value", "status", "request_date"],
+  sourcing: ["request_no", "title", "department", "estimated_value", "status", "request_date", "created_by"],
   kak: ["kak_no", "title", "department", "requester", "background", "objective", "scope", "deliverables", "location", "duration", "schedule", "budget", "payment_terms", "requirements", "evaluation_method", "special_terms", "status"],
-  contracts: ["contract_no", "vendor_id", "title", "contract_value", "start_date", "end_date", "status"],
+  contracts: ["contract_no", "vendor_id", "title", "contract_value", "start_date", "end_date", "status", "created_by"],
   contract_drafts: ["draft_no", "kak_id", "vendor_id", "title", "contract_value", "start_date", "end_date", "scope", "payment_terms", "clauses", "created_by", "status"],
-  obligations: ["contract_id", "title", "vendor_name", "due_date", "status", "notes"],
-  change_orders: ["contract_id", "change_no", "title", "reason", "value_delta", "status"],
-  approvals: ["ref_type", "ref_id", "ref_no", "title", "requester", "status"],
+  obligations: ["contract_id", "title", "vendor_name", "due_date", "status", "notes", "created_by"],
+  change_orders: ["contract_id", "change_no", "title", "reason", "value_delta", "status", "created_by"],
+  approvals: ["ref_type", "ref_id", "ref_no", "title", "requester", "status", "created_by"],
   vendor_performance: ["vendor_id", "score", "quality_score", "delivery_score", "compliance_score", "period_label"]
 };
 const TABLE_NAMES: Record<string, string> = {
@@ -159,15 +159,17 @@ async function api(request: Request, env: Env): Promise<Response> {
   if (path[0] === "dashboard" && method === "GET") {
     // Core dashboard metrics must remain available even if optional routing
     // tables have not yet been migrated in the connected D1 database.
+    const own = auth.role === "User";
+    const ownerClause = own ? " WHERE created_by=" + Number(auth.id) : "";
     const [vendors, sourcing, kaks, contracts, drafts, approvals, obligations, draftStatuses] = await Promise.all([
       env.DB.prepare("SELECT COUNT(*) n FROM vendors").first<any>(),
-      env.DB.prepare("SELECT COUNT(*) n FROM sourcing_requests").first<any>(),
-      env.DB.prepare("SELECT COUNT(*) n FROM kak_documents").first<any>(),
-      env.DB.prepare("SELECT COUNT(*) n FROM contracts").first<any>(),
-      env.DB.prepare("SELECT COUNT(*) n FROM contract_drafts").first<any>(),
-      env.DB.prepare("SELECT COUNT(*) n FROM approvals WHERE status='Pending'").first<any>(),
-      env.DB.prepare("SELECT COUNT(*) n FROM obligations WHERE status IN ('Open', 'Due Soon', 'Overdue')").first<any>(),
-      env.DB.prepare("SELECT status, COUNT(*) AS n FROM contract_drafts GROUP BY status").all<any>()
+      env.DB.prepare("SELECT COUNT(*) n FROM sourcing_requests"+ownerClause).first<any>(),
+      env.DB.prepare("SELECT COUNT(*) n FROM kak_documents"+(own?" WHERE created_by="+Number(auth.id):"")).first<any>(),
+      env.DB.prepare("SELECT COUNT(*) n FROM contracts"+ownerClause).first<any>(),
+      env.DB.prepare("SELECT COUNT(*) n FROM contract_drafts"+ownerClause).first<any>(),
+      env.DB.prepare("SELECT COUNT(*) n FROM approvals WHERE status='Pending'"+(own?" AND created_by="+Number(auth.id):"")).first<any>(),
+      env.DB.prepare("SELECT COUNT(*) n FROM obligations WHERE status IN ('Open', 'Due Soon', 'Overdue')"+ownerClause).first<any>(),
+      env.DB.prepare("SELECT status, COUNT(*) AS n FROM contract_drafts"+ownerClause+" GROUP BY status").all<any>()
     ]);
     let routeStatuses:any = { results: [] };
     let routePending = 0;
@@ -390,8 +392,8 @@ async function api(request: Request, env: Env): Promise<Response> {
   if (path[0] === "kak" && path[1] && path[2] === "workflow") {
     const kakId = Number(path[1]);
     if (!Number.isInteger(kakId) || kakId < 1) return fail("ID KAK tidak valid.");
-    const kak = await env.DB.prepare("SELECT id,kak_no,title,requester FROM kak_documents WHERE id=?").bind(kakId).first<any>();
-    if (!kak) return fail("KAK tidak ditemukan.", 404);
+    const kak = await env.DB.prepare("SELECT id,kak_no,title,requester,created_by FROM kak_documents WHERE id=?").bind(kakId).first<any>();
+    if (!kak || (auth.role==="User" && Number(kak.created_by)!==auth.id)) return fail("KAK tidak ditemukan atau Anda tidak memiliki akses.", 404);
     if (method === "GET") {
       const workflow = await env.DB.prepare("SELECT * FROM kak_workflows WHERE kak_id=?").bind(kakId).first<any>();
       const reviews = await env.DB.prepare("SELECT r.id,r.reviewer_role,r.status,r.note,r.reviewer_id,r.decided_at,u.full_name AS reviewer_name FROM kak_workflow_reviews r LEFT JOIN users u ON u.id=r.reviewer_id WHERE r.kak_id=? ORDER BY r.id").bind(kakId).all<any>();
@@ -560,7 +562,8 @@ async function api(request: Request, env: Env): Promise<Response> {
 
   if (method === "GET" && path.length === 1) {
     const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 100), 1), 500);
-    const rows = await env.DB.prepare(`SELECT * FROM ${table} ORDER BY id DESC LIMIT ?`).bind(limit).all();
+    const ownerFilter = auth.role === "User" && resource !== "vendors" ? " WHERE created_by=" + Number(auth.id) : "";
+    const rows = await env.DB.prepare(`SELECT * FROM ${table}${ownerFilter} ORDER BY id DESC LIMIT ?`).bind(limit).all();
     return json({ ok: true, data: rows.results || [] });
   }
   if (method === "POST" && path.length === 1) {
@@ -573,6 +576,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     };
     if ((required[resource] || []).some(k => input[k] === undefined || input[k] === "")) return fail("Lengkapi seluruh field wajib.");
     if (resource === "kak") input.status = "Draft";
+    if (auth.role === "User" && resource !== "vendors") input.created_by = auth.id;
     if (resource === "contract_drafts") input.created_by = auth.id;
     const columns = Object.keys(input);
     if (!columns.length) return fail("Tidak ada data yang dapat disimpan.");
@@ -603,7 +607,8 @@ async function api(request: Request, env: Env): Promise<Response> {
     const columns = Object.keys(input);
     if (!columns.length) return fail("Tidak ada perubahan.");
     const assignments = columns.map(k => `${k}=?`).join(",");
-    const result = await env.DB.prepare(`UPDATE ${table} SET ${assignments} WHERE id=?`).bind(...columns.map(k => input[k]), id).run();
+    const ownerGuard = auth.role === "User" && resource !== "vendors" ? " AND created_by=" + Number(auth.id) : "";
+    const result = await env.DB.prepare(`UPDATE ${table} SET ${assignments} WHERE id=?${ownerGuard}`).bind(...columns.map(k => input[k]), id).run();
     if (!result.meta.changes) return fail("Data tidak ditemukan.", 404);
     return json({ ok: true });
   }
@@ -611,7 +616,8 @@ async function api(request: Request, env: Env): Promise<Response> {
     if (!["vendors", "sourcing", "kak", "contracts", "contract_drafts", "obligations", "change_orders"].includes(resource)) return fail("Penghapusan tidak diizinkan untuk modul ini.", 403);
     const id = Number(path[1]);
     if (!Number.isInteger(id) || id < 1) return fail("ID tidak valid.");
-    const result = await env.DB.prepare(`DELETE FROM ${table} WHERE id=?`).bind(id).run();
+    const ownerGuard = auth.role === "User" && resource !== "vendors" ? " AND created_by=" + Number(auth.id) : "";
+    const result = await env.DB.prepare(`DELETE FROM ${table} WHERE id=?${ownerGuard}`).bind(id).run();
     return result.meta.changes ? json({ ok: true }) : fail("Data tidak ditemukan.", 404);
   }
   return fail("Metode atau rute tidak didukung.", 405);
