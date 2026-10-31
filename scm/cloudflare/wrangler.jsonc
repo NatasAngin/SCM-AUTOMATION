@@ -17,11 +17,5 @@
       "migrations_dir": "migrations"
     }
   ],
-  "r2_buckets": [
-    {
-      "binding": "DOCUMENTS",
-      "bucket_name": "scm-automation-documents"
-    }
-  ],
   "observability": { "enabled": true }
 }
