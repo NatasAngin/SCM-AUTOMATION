@@ -218,11 +218,11 @@ async function api(request: Request, env: Env): Promise<Response> {
 
   // Central Approval & Document Routing Center.
   if (path[0] === "routing") {
-    const syncSourceStatus = async (resource:string, status:string) => {
+    const syncSourceStatus = async (resource:string, resourceId:number, status:string) => {
       const tables:Record<string,string> = {sourcing:"sourcing_requests",kak:"kak_documents",vendors:"vendors",contract_drafts:"contract_drafts",contracts:"contracts",change_orders:"change_orders"};
       const table=tables[resource];
       if(!table || resource==="kak") return;
-      await env.DB.prepare("UPDATE "+table+" SET status=? WHERE id=(SELECT resource_id FROM document_routes WHERE resource=? ORDER BY id DESC LIMIT 1)").bind(status,resource).run();
+      await env.DB.prepare("UPDATE "+table+" SET status=? WHERE id=?").bind(status,resourceId).run();
     };
     if (method === "GET" && path.length === 1) {
       const rows = await env.DB.prepare(`
@@ -330,7 +330,7 @@ async function api(request: Request, env: Env): Promise<Response> {
         ]);
         const revisionStatus:Record<string,string>={sourcing:"Draft",vendors:"Pending",contract_drafts:"Draft",contracts:"Draft",change_orders:"Draft"};
         const rejectedStatus:Record<string,string>={sourcing:"Cancelled",vendors:"Inactive",contract_drafts:"Rejected",contracts:"Closed",change_orders:"Rejected"};
-        await syncSourceStatus(route.resource,decision==="Revision"?(revisionStatus[route.resource]||"Draft"):(rejectedStatus[route.resource]||"Rejected"));
+        await syncSourceStatus(route.resource,route.resource_id,decision==="Revision"?(revisionStatus[route.resource]||"Draft"):(rejectedStatus[route.resource]||"Rejected"));
         await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_update',?,?,?,? FROM users WHERE is_active=1 AND (id=? OR role='Admin')").bind("Dokumen "+(decision==="Revision"?"dikembalikan untuk revisi":"ditolak"),route.document_no+" — "+note,route.resource,route.resource_id,route.requester_id).run();
         return json({ok:true,message:decision==="Revision"?"Dokumen dikembalikan untuk revisi.":"Dokumen ditolak."});
       }
@@ -345,7 +345,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       ]);
       if(done){
         const finalStatus:Record<string,string>={sourcing:"Awarded",vendors:"Active",contract_drafts:"Approved",contracts:"Active",change_orders:"Approved"};
-        if(finalStatus[route.resource])await syncSourceStatus(route.resource,finalStatus[route.resource]);
+        if(finalStatus[route.resource])await syncSourceStatus(route.resource,route.resource_id,finalStatus[route.resource]);
       }
       if(next)await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_task','Dokumen menunggu tindak lanjut',?,?,? FROM users WHERE is_active=1 AND (role=? OR role='Admin')").bind(route.document_no+" — "+route.title,route.resource,route.resource_id,next.assignee_role).run();
       else await env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,'routing_complete','Proses dokumen selesai',?,?,? FROM users WHERE id=?").bind(route.document_no+" — "+route.title,route.resource,route.resource_id,route.requester_id).run();
