@@ -217,6 +217,97 @@ async function api(request: Request, env: Env): Promise<Response> {
     return fail("Penyimpanan lampiran belum diaktifkan pada konfigurasi Cloudflare Free. Data transaksi tetap tersimpan di D1; fitur lampiran akan ditambahkan setelah tersedia media penyimpanan.", 501);
   }
 
+  // KAK/TOR workflow: dual review (Section Head + Procurement), Admin-only revisions, authorized final approval.
+  if (path[0] === "kak" && path[1] && path[2] === "workflow") {
+    const kakId = Number(path[1]);
+    if (!Number.isInteger(kakId) || kakId < 1) return fail("ID KAK tidak valid.");
+    const kak = await env.DB.prepare("SELECT id,kak_no,title,requester FROM kak_documents WHERE id=?").bind(kakId).first<any>();
+    if (!kak) return fail("KAK tidak ditemukan.", 404);
+    if (method === "GET") {
+      const workflow = await env.DB.prepare("SELECT * FROM kak_workflows WHERE kak_id=?").bind(kakId).first<any>();
+      const reviews = await env.DB.prepare("SELECT r.id,r.reviewer_role,r.status,r.note,r.reviewer_id,r.decided_at,u.full_name AS reviewer_name FROM kak_workflow_reviews r LEFT JOIN users u ON u.id=r.reviewer_id WHERE r.kak_id=? ORDER BY r.id").bind(kakId).all<any>();
+      const events = await env.DB.prepare("SELECT e.id,e.event_type,e.from_status,e.to_status,e.note,e.created_at,u.full_name AS actor_name FROM kak_workflow_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.kak_id=? ORDER BY e.id DESC LIMIT 100").bind(kakId).all<any>();
+      return json({ok:true,workflow:workflow||{workflow_status:"Draft",current_step:"Draft"},reviews:reviews.results||[],events:events.results||[]});
+    }
+    if (method !== "POST") return fail("Metode workflow tidak didukung.",405);
+    const input = await bodyObject(request);
+    const action = String(input.action||"").trim();
+    const note = String(input.note||"").trim().slice(0,3000);
+    const current = await env.DB.prepare("SELECT * FROM kak_workflows WHERE kak_id=?").bind(kakId).first<any>();
+    const status = current?.workflow_status || "Draft";
+    const notify = async (type:string,title:string,message:string) => env.DB.prepare("INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,?,?,?,'kak',? FROM users WHERE is_active=1").bind(type,title,message,kakId).run();
+    const event = async (eventType:string,from:string,to:string) => env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(?,?,?,?,?,?)").bind(kakId,auth.id,eventType,from,to,note).run();
+    if (action === "submit") {
+      if (!["Draft","Revision"].includes(status)) return fail("Dokumen hanya dapat diajukan dari status Draft atau Revisi.",409);
+      if (status === "Revision" && auth.role !== "Admin") return fail("Hanya Admin yang berhak mengedit dan mengajukan ulang hasil revisi.",403);
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO kak_workflows(kak_id,workflow_status,current_step,submitted_by,updated_at) VALUES(?,'Review','Dual Review',?,CURRENT_TIMESTAMP) ON CONFLICT(kak_id) DO UPDATE SET workflow_status='Review',current_step='Dual Review',submitted_by=excluded.submitted_by,revision_note=NULL,updated_at=CURRENT_TIMESTAMP").bind(kakId,auth.id),
+        env.DB.prepare("DELETE FROM kak_workflow_reviews WHERE kak_id=?").bind(kakId),
+        env.DB.prepare("INSERT INTO kak_workflow_reviews(kak_id,reviewer_role,status) VALUES(?,'Section Head','Pending'),(?,'Procurement','Pending')").bind(kakId,kakId),
+        env.DB.prepare("UPDATE kak_documents SET status='Review' WHERE id=?").bind(kakId),
+        env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(?,?,'SUBMITTED',?,?,?)").bind(kakId,auth.id,status,"Review",note)
+      ]);
+      await notify("kak_submitted","KAK diajukan untuk pemeriksaan",kak.kak_no+" — "+kak.title);
+      return json({ok:true,workflow_status:"Review",message:"KAK berhasil diajukan ke Section Head dan Procurement."});
+    }
+    if (action === "review") {
+      if (status !== "Review") return fail("KAK tidak sedang dalam tahap pemeriksaan.",409);
+      if (!["Section Head","Procurement"].includes(auth.role)) return fail("Pemeriksaan hanya dapat dilakukan Section Head atau Procurement.",403);
+      const decision=String(input.decision||"").trim();
+      if (!["Approved","Revision"].includes(decision)) return fail("Keputusan pemeriksa tidak valid.");
+      const task=await env.DB.prepare("SELECT id,status FROM kak_workflow_reviews WHERE kak_id=? AND reviewer_role=?").bind(kakId,auth.role).first<any>();
+      if (!task) return fail("Tugas pemeriksaan untuk role Anda tidak ditemukan.",404);
+      if (task.status!=="Pending") return fail("Pemeriksaan role Anda sudah diputuskan.",409);
+      await env.DB.prepare("UPDATE kak_workflow_reviews SET status=?,note=?,reviewer_id=?,decided_at=CURRENT_TIMESTAMP WHERE id=?").bind(decision,note,auth.id,task.id).run();
+      if(decision==="Revision"){
+        await env.DB.prepare("UPDATE kak_workflows SET workflow_status='Revision',current_step='Admin Revision',revision_note=?,updated_at=CURRENT_TIMESTAMP WHERE kak_id=?").bind(note,kakId).run();
+        await env.DB.prepare("UPDATE kak_documents SET status='Draft' WHERE id=?").bind(kakId).run();
+        await event("REVISION_REQUESTED","Review","Revision");
+        await notify("kak_revision","KAK dikembalikan untuk revisi",kak.kak_no+" — "+(note||"Perlu perbaikan"));
+        return json({ok:true,workflow_status:"Revision",message:"KAK dikembalikan kepada Admin untuk revisi."});
+      }
+      const pending=await env.DB.prepare("SELECT COUNT(*) AS n FROM kak_workflow_reviews WHERE kak_id=? AND status='Pending'").bind(kakId).first<any>();
+      if((pending?.n||0)===0){
+        await env.DB.prepare("UPDATE kak_workflows SET workflow_status='Final Approval',current_step='Authorized Approver',updated_at=CURRENT_TIMESTAMP WHERE kak_id=?").bind(kakId).run();
+        await event("DUAL_REVIEW_COMPLETED","Review","Final Approval");
+        await notify("kak_final_approval","KAK menunggu persetujuan final",kak.kak_no+" — "+kak.title);
+        return json({ok:true,workflow_status:"Final Approval",message:"Kedua pemeriksa menyetujui. KAK diteruskan ke pejabat berwenang."});
+      }
+      await event("REVIEW_APPROVED","Review","Review");
+      await notify("kak_review_approved","Pemeriksaan KAK disetujui",kak.kak_no+" — "+auth.role);
+      return json({ok:true,workflow_status:"Review",message:"Keputusan tersimpan. Menunggu pemeriksa lainnya."});
+    }
+    if (action === "final_approve") {
+      if (status!=="Final Approval") return fail("KAK belum menyelesaikan kedua pemeriksaan.",409);
+      if (!["Authorized Approver","Admin"].includes(auth.role)) return fail("Persetujuan final hanya untuk Authorized Approver.",403);
+      await env.DB.batch([
+        env.DB.prepare("UPDATE kak_workflows SET workflow_status='Final',current_step='Completed',final_approved_by=?,final_approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE kak_id=?").bind(auth.id,kakId),
+        env.DB.prepare("UPDATE kak_documents SET status='Approved' WHERE id=?").bind(kakId),
+        env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(?,?,'FINAL_APPROVED','Final Approval','Final',?)").bind(kakId,auth.id,note)
+      ]);
+      await notify("kak_final","KAK disetujui final",kak.kak_no+" — "+kak.title);
+      return json({ok:true,workflow_status:"Final",message:"KAK telah disetujui final."});
+    }
+    if (action === "edit") {
+      if (auth.role!=="Admin") return fail("Hanya Admin yang dapat mengedit KAK pada tahap revisi.",403);
+      if (!["Draft","Revision"].includes(status)) return fail("Isi KAK terkunci setelah diajukan. Perubahan hanya melalui tahap revisi.",409);
+      const allowed=TABLES.kak.filter(k=>!["status"].includes(k));
+      const data=cleanInput(input.data&&typeof input.data==="object"?input.data:{},allowed);
+      const cols=Object.keys(data);
+      if(!cols.length)return fail("Tidak ada perubahan data.");
+      const assignments=cols.map(k=>k+"=?").join(",");
+      const old=await env.DB.prepare("SELECT * FROM kak_documents WHERE id=?").bind(kakId).first<any>();
+      const update=await env.DB.prepare("UPDATE kak_documents SET "+assignments+" WHERE id=?").bind(...cols.map(k=>data[k]),kakId).run();
+      if(!update.meta.changes)return fail("Tidak ada perubahan data.",404);
+      await env.DB.prepare("INSERT INTO kak_workflow_revisions(kak_id,revision_no,edited_by,change_summary,snapshot_json) VALUES(?,COALESCE((SELECT MAX(revision_no)+1 FROM kak_workflow_revisions WHERE kak_id=?),1),?,?,?)").bind(kakId,kakId,auth.id,note,JSON.stringify(old||{})).run();
+      await env.DB.prepare("UPDATE kak_workflows SET updated_at=CURRENT_TIMESTAMP WHERE kak_id=?").bind(kakId).run();
+      await env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(?,?,'ADMIN_EDITED',?,?,?)").bind(kakId,auth.id,status,status,note).run();
+      await notify("kak_edited","KAK diperbarui oleh Admin",kak.kak_no+" — "+kak.title);
+      return json({ok:true,message:"Perubahan KAK tersimpan dan tercatat dalam riwayat revisi."});
+    }
+    return fail("Aksi workflow tidak dikenal.");
+  }
+
   if (path[0] === "ai" && path[1] === "documents" && method === "GET") {
     const [kaks, drafts, contracts] = await Promise.all([
       env.DB.prepare("SELECT id, kak_no AS document_no, title, status, 'kak' AS resource, 'KAK / TOR' AS document_type, created_at FROM kak_documents ORDER BY id DESC LIMIT 500").all<any>(),
@@ -307,6 +398,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, id: result.meta.last_row_id }, 201);
   }
   if (method === "PUT" && path.length === 2) {
+    if (resource === "kak") return fail("Perubahan KAK harus melalui endpoint workflow agar hak akses dan audit trail terjaga.",403);
     const id = Number(path[1]);
     if (!Number.isInteger(id) || id < 1) return fail("ID tidak valid.");
     const input = cleanInput(await bodyObject(request), fields);
