@@ -73,14 +73,19 @@ async function renderPage(page){
 }
 async function renderDashboard(){
   try{
-    const [metrics, recent]=await Promise.all([api("dashboard"),api("sourcing?limit=5")]);
-    const m=metrics.metrics;
-    $("#page-content").innerHTML=`<div class="page-heading"><div><p class="eyebrow">PROCUREMENT OVERVIEW</p><h1>Dashboard</h1><p>Ringkasan aktivitas sourcing dan contract management.</p></div></div>
+    const [metrics, recent, draftRows]=await Promise.all([api("dashboard"),api("sourcing?limit=5"),api("contract_drafts?limit=5")]);
+    const m=metrics.metrics||{},ds=metrics.draft_statuses||{},rs=metrics.routing_statuses||{};
+    const statusMetric=(label,value)=>metric(label,value,"Draft Contract");
+    $("#page-content").innerHTML=`<div class="page-heading"><div><p class="eyebrow">PROCUREMENT OVERVIEW</p><h1>Dashboard</h1><p>Ringkasan aktivitas sourcing, kontrak, dan status proses dokumen.</p></div><button class="action-button" id="dashboard-refresh">↻ Refresh</button></div>
     <div class="metric-grid">
       ${metric("Sourcing Request",m.sourcing,"Permintaan pengadaan")}${metric("KAK / TOR",m.kak,"Dokumen acuan kerja")}${metric("Vendor",m.vendors,"Master penyedia")}${metric("Kontrak",m.contracts,"Kontrak terdaftar")}
-      ${metric("Draft Contract",m.contract_drafts,"Draft dalam proses")}${metric("Pending Approval",m.pending_approvals,"Menunggu keputusan")}${metric("Open Obligations",m.open_obligations,"Kewajiban berjalan")}
-    </div><div class="panel"><div class="panel-head"><div><h3>Sourcing Request Terbaru</h3><p>Data permintaan pengadaan terakhir</p></div><button class="action-button" data-go="sourcing">Lihat semua</button></div>${tableHtml(recent.data,resources.sourcing.columns)}</div>`;
-    $("[data-go]")?.addEventListener("click",()=>renderPage("sourcing"));
+      ${metric("Draft Contract",m.contract_drafts,"Seluruh draft kontrak")}${metric("Pending Approval",m.pending_approvals,"Review, proses, dan revisi")}${metric("Open Obligations",m.open_obligations,"Kewajiban berjalan")}
+    </div>
+    <div class="panel"><div class="panel-head"><div><h3>Status Draft Contract</h3><p>Jumlah dokumen berdasarkan status terakhir pada modul Draft Contract</p></div><button class="action-button" data-go="contract_drafts">Kelola Draft</button></div><div class="metric-grid">${statusMetric("Draft",ds.Draft||0)}${statusMetric("Review",ds.Review||0)}${statusMetric("Approved",ds.Approved||0)}${statusMetric("Rejected",ds.Rejected||0)}</div></div>
+    <div class="panel"><div class="panel-head"><div><h3>Status Document Routing</h3><p>Jumlah dokumen berdasarkan status routing aktif</p></div><button class="action-button" data-go="approvals">Buka Routing Center</button></div><div class="metric-grid">${Object.entries(rs).map(([status,count])=>metric(status,count,"Dokumen routing")).join("")||'<div class="empty">Belum ada data routing.</div>'}</div></div>
+    <div class="panel"><div class="panel-head"><div><h3>Draft Contract Terbaru</h3><p>Data draft kontrak terakhir</p></div><button class="action-button" data-go="contract_drafts">Lihat semua</button></div>${tableHtml(draftRows.data,resources.contract_drafts.columns)}</div>
+    <div class="panel"><div class="panel-head"><div><h3>Sourcing Request Terbaru</h3><p>Data permintaan pengadaan terakhir</p></div><button class="action-button" data-go="sourcing">Lihat semua</button></div>${tableHtml(recent.data,resources.sourcing.columns)}</div>`;
+    $("#dashboard-refresh")?.addEventListener("click",()=>renderDashboard());$("#page-content").querySelectorAll("[data-go]").forEach(btn=>btn.addEventListener("click",()=>renderPage(btn.dataset.go)));
   }catch(e){$("#page-content").innerHTML='<div class="panel empty">'+esc(e.message)+'</div>'}
 }
 function metric(label,value,hint){return `<div class="metric"><div class="label">${label}</div><div class="value">${Number(value||0).toLocaleString("id-ID")}</div><div class="hint">${hint}</div></div>`}
