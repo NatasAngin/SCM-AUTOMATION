@@ -264,7 +264,11 @@ async function api(request: Request, env: Env): Promise<Response> {
       if(!cfg||!Number.isInteger(id)||id<1)return fail("Jenis atau ID dokumen tidak valid.");
       const doc=await env.DB.prepare("SELECT * FROM "+cfg.table+" WHERE id=?").bind(id).first<any>();
       if(!doc)return fail("Dokumen sumber tidak ditemukan.",404);
-      if(auth.role!=="Admin" && doc.requester && doc.requester!==auth.full_name && doc.created_by && doc.created_by!==auth.full_name)return fail("Hanya pembuat dokumen atau Admin yang dapat mengajukan routing.",403);
+      const ownerId=Number(doc.created_by||0);
+      const requesterName=String(doc.requester||"").trim();
+      const hasOwnershipMetadata=ownerId>0||requesterName.length>0;
+      const isOwner=ownerId>0?ownerId===auth.id:requesterName.length>0?requesterName===auth.full_name:false;
+      if(auth.role!=="Admin" && hasOwnershipMetadata && !isOwner)return fail("Hanya pembuat dokumen atau Admin yang dapat mengajukan routing.",403);
       const template=await env.DB.prepare("SELECT * FROM routing_templates WHERE document_type=? AND is_active=1").bind(cfg.type).first<any>();
       if(!template)return fail("Template routing belum tersedia untuk jenis dokumen ini.",409);
       const existing=await env.DB.prepare("SELECT id,route_status FROM document_routes WHERE resource=? AND resource_id=?").bind(resource,id).first<any>();
@@ -362,7 +366,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       await env.DB.batch([
         env.DB.prepare("INSERT INTO kak_workflows(kak_id,workflow_status,current_step,submitted_by,updated_at) VALUES(?,'Review','SCM Section Head',?,CURRENT_TIMESTAMP) ON CONFLICT(kak_id) DO UPDATE SET workflow_status='Review',current_step='SCM Section Head',submitted_by=excluded.submitted_by,revision_note=NULL,updated_at=CURRENT_TIMESTAMP").bind(kakId,auth.id),
         env.DB.prepare("DELETE FROM kak_workflow_reviews WHERE kak_id=?").bind(kakId),
-        env.DB.prepare("INSERT INTO kak_workflow_reviews(kak_id,reviewer_role,status) VALUES(?,'Section Head','Pending')").bind(kakId,kakId),
+        env.DB.prepare("INSERT INTO kak_workflow_reviews(kak_id,reviewer_role,status) VALUES(?,'Section Head','Pending')").bind(kakId),
         env.DB.prepare("UPDATE kak_documents SET status='Review' WHERE id=?").bind(kakId),
         env.DB.prepare("INSERT INTO kak_workflow_events(kak_id,actor_id,event_type,from_status,to_status,note) VALUES(?,?,'SUBMITTED',?,?,?)").bind(kakId,auth.id,status,"Review",note)
       ]);
