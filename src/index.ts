@@ -145,7 +145,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       env.DB.prepare("SELECT COUNT(*) n FROM kak_documents").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM contracts").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM contract_drafts").first<any>(),
-      env.DB.prepare("SELECT (SELECT COUNT(*) FROM approvals WHERE status='Pending') + (SELECT COUNT(*) FROM kak_workflows WHERE workflow_status IN ('Review','Final Approval')) AS n").first<any>(),
+      env.DB.prepare("SELECT (SELECT COUNT(*) FROM approvals WHERE status='Pending') + (SELECT COUNT(*) FROM kak_workflows WHERE workflow_status IN ('Review')) AS n").first<any>(),
       env.DB.prepare("SELECT COUNT(*) n FROM obligations WHERE status IN ('Open','Due Soon','Overdue')").first<any>()
     ]);
     return json({ ok: true, metrics: { vendors: vendors?.n || 0, sourcing: sourcing?.n || 0, kak: kaks?.n || 0, contracts: contracts?.n || 0, contract_drafts: drafts?.n || 0, pending_approvals: approvals?.n || 0, open_obligations: obligations?.n || 0 } });
@@ -241,7 +241,7 @@ async function api(request: Request, env: Env): Promise<Response> {
       if (!["Draft","Revision"].includes(status)) return fail("Dokumen hanya dapat diajukan dari status Draft atau Revisi.",409);
       if (status === "Revision" && auth.role !== "Admin") return fail("Hanya Admin yang berhak mengedit dan mengajukan ulang hasil revisi.",403);
       await env.DB.batch([
-        env.DB.prepare("INSERT INTO kak_workflows(kak_id,workflow_status,current_step,submitted_by,updated_at) VALUES(?,'Review','Dual Review',?,CURRENT_TIMESTAMP) ON CONFLICT(kak_id) DO UPDATE SET workflow_status='Review',current_step='SCM Section Head',submitted_by=excluded.submitted_by,revision_note=NULL,updated_at=CURRENT_TIMESTAMP").bind(kakId,auth.id),
+        env.DB.prepare("INSERT INTO kak_workflows(kak_id,workflow_status,current_step,submitted_by,updated_at) VALUES(?,'Review','SCM Section Head',?,CURRENT_TIMESTAMP) ON CONFLICT(kak_id) DO UPDATE SET workflow_status='Review',current_step='SCM Section Head',submitted_by=excluded.submitted_by,revision_note=NULL,updated_at=CURRENT_TIMESTAMP").bind(kakId,auth.id),
         env.DB.prepare("DELETE FROM kak_workflow_reviews WHERE kak_id=?").bind(kakId),
         env.DB.prepare("INSERT INTO kak_workflow_reviews(kak_id,reviewer_role,status) VALUES(?,'Section Head','Pending')").bind(kakId,kakId),
         env.DB.prepare("UPDATE kak_documents SET status='Review' WHERE id=?").bind(kakId),
