@@ -18,6 +18,21 @@
       <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
       <button class="primary full" type="submit">Masuk ke sistem</button>
       <p id="login-error" class="error" role="alert"></p>
+      <div class="login-register-link"><span class="muted">Belum memiliki akun?</span> <button id="show-register" class="text-button" type="button">Daftar sekarang</button></div>
+      <section id="register-panel" class="hidden">
+        <div class="register-divider"></div>
+        <h2 class="register-title">Buat akun pengguna</h2>
+        <p class="muted">Pendaftaran mandiri hanya memberikan role User.</p>
+        <form id="register-form">
+          <label>Nama lengkap<input name="full_name" autocomplete="name" maxlength="100" required></label>
+          <label>Username<input name="username" autocomplete="username" minlength="3" maxlength="50" pattern="[a-zA-Z0-9._-]+" required></label>
+          <label>Password<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+          <label>Konfirmasi password<input name="password_confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+          <button class="primary full" type="submit">Daftar sebagai User</button>
+          <p id="register-error" class="error" role="alert"></p>
+        </form>
+        <button id="back-to-login" class="text-button" type="button">Kembali ke login</button>
+      </section>
       <small class="muted">Akses hanya untuk pengguna yang telah terdaftar.</small>
     </form>
   </div>
