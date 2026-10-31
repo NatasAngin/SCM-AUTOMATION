@@ -193,6 +193,26 @@ async function api(request: Request, env: Env): Promise<Response> {
     return fail("Metode atau rute user tidak didukung.", 405);
   }
 
+  // Notifications: each authenticated user receives a personal inbox entry.
+  if (path[0] === "notifications") {
+    if (method === "GET" && path.length === 1) {
+      const rows = await env.DB.prepare("SELECT id,type,title,message,resource,resource_id,is_read,created_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 50").bind(auth.id).all();
+      const unread = await env.DB.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND is_read=0").bind(auth.id).first<any>();
+      return json({ ok: true, data: rows.results || [], unread: unread?.n || 0 });
+    }
+    if (method === "POST" && path.length === 3 && path[2] === "read") {
+      const id = Number(path[1]);
+      if (!Number.isInteger(id) || id < 1) return fail("ID notifikasi tidak valid.");
+      await env.DB.prepare("UPDATE notifications SET is_read=1 WHERE id=? AND user_id=?").bind(id, auth.id).run();
+      return json({ ok: true });
+    }
+    if (method === "POST" && path.length === 2 && path[1] === "read-all") {
+      await env.DB.prepare("UPDATE notifications SET is_read=1 WHERE user_id=? AND is_read=0").bind(auth.id).run();
+      return json({ ok: true });
+    }
+    return fail("Rute notifikasi tidak didukung.", 405);
+  }
+
   if (path[0] === "documents") {
     return fail("Penyimpanan lampiran belum diaktifkan pada konfigurasi Cloudflare Free. Data transaksi tetap tersimpan di D1; fitur lampiran akan ditambahkan setelah tersedia media penyimpanan.", 501);
   }
@@ -235,6 +255,21 @@ async function api(request: Request, env: Env): Promise<Response> {
     if (!columns.length) return fail("Tidak ada data yang dapat disimpan.");
     const placeholders = columns.map(() => "?").join(",");
     const result = await env.DB.prepare(`INSERT INTO ${table} (${columns.join(",")}) VALUES (${placeholders})`).bind(...columns.map(k => input[k])).run();
+    const notificationTypes: Record<string, { type: string; label: string; numberField: string }> = {
+      kak: { type: "kak_created", label: "KAK baru dibuat", numberField: "kak_no" },
+      sourcing: { type: "sourcing_created", label: "Sourcing Request baru dibuat", numberField: "request_no" },
+      contracts: { type: "contract_created", label: "Kontrak baru dibuat", numberField: "contract_no" },
+      contract_drafts: { type: "contract_draft_created", label: "Draft kontrak baru dibuat", numberField: "draft_no" }
+    };
+    const event = notificationTypes[resource];
+    if (event) {
+      const reference = String(input[event.numberField] || "");
+      const title = String(input.title || "Tanpa judul");
+      const message = [reference, title].filter(Boolean).join(" — ");
+      await env.DB.prepare(
+        "INSERT INTO notifications(user_id,type,title,message,resource,resource_id) SELECT id,?,?,?,?,? FROM users WHERE is_active=1"
+      ).bind(event.type, event.label, message, resource, result.meta.last_row_id).run();
+    }
     return json({ ok: true, id: result.meta.last_row_id }, 201);
   }
   if (method === "PUT" && path.length === 2) {
