@@ -228,19 +228,24 @@ async function api(request: Request, env: Env): Promise<Response> {
     const document = await env.DB.prepare("SELECT * FROM " + table + " WHERE id=?").bind(id).first<any>();
     if (!document) return fail("Dokumen tidak ditemukan.", 404);
     const instruction = String(input.instruction || "Lakukan review menyeluruh dan identifikasi kekurangan, inkonsistensi, risiko, dan tahapan yang belum terpenuhi.").trim().slice(0, 4000);
-    const response: any = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct", { messages: [
+    try {
+    const response: any = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct-fp8", { messages: [
       { role: "system", content: "Anda adalah AI Procurement Governance Reviewer. Gunakan hanya fakta dalam dokumen. Data yang tidak tersedia harus ditandai BELUM ADA DATA. Periksa kelengkapan administratif, ruang lingkup, spesifikasi/deliverables, jadwal, anggaran, metode pengadaan/evaluasi, syarat komersial, pembayaran, jaminan, risiko hukum/operasional, konsistensi, approval dan bukti pendukung. Untuk kontrak periksa para pihak, objek, nilai, masa berlaku, ruang lingkup, pembayaran, denda/sanksi, jaminan, perubahan, terminasi dan kewajiban. Susun Bahasa Indonesia dengan bagian RINGKASAN, STATUS (Siap ditinjau manusia/Perlu perbaikan/Data tidak cukup), TEMUAN KRITIS, TEMUAN LAIN, CHECKLIST TAHAPAN BELUM TERPENUHI, REKOMENDASI TINDAKAN, dan HAL YANG WAJIB DISETUJUI MANUSIA. Setiap temuan diberi risiko Tinggi/Sedang/Rendah. Jangan mengubah data, memberi approval, menetapkan pemenang, atau menandatangani kontrak." },
       { role: "user", content: "Jenis dokumen: " + resource + "\nInstruksi: " + instruction + "\nData dokumen JSON: " + JSON.stringify(document).slice(0, 18000) }
     ] });
     const result = typeof response === "string" ? response : (response?.response || response?.result || JSON.stringify(response));
     return json({ ok: true, resource, document_id: id, document_title: document.title || document.kak_no || document.contract_no || document.draft_no || ("Dokumen #" + id), result });
+    } catch (error) {
+      console.error("SCM AI review error", error);
+      return fail("AI gagal memproses review. Periksa ketersediaan model Workers AI, kuota akun, dan Workers Logs.", 502);
+    }
   }
   if (path[0] === "ai" && method === "POST") {
     if (!env.AI) return fail("AI binding belum dikonfigurasi. Aktifkan Workers AI setelah infrastruktur dasar siap.", 503);
     const input = await bodyObject(request);
     const prompt = String(input.prompt || input.message || "").trim();
     if (!prompt) return fail("Prompt AI masih kosong.");
-    const response = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct", {
+    const response = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct-fp8", {
       messages: [
         { role: "system", content: "Anda adalah SCM Procurement Copilot untuk perusahaan Indonesia. Berikan analisis procurement, KAK/TOR, vendor, kontrak dan sourcing secara profesional. Jangan mengarang fakta atau menyetujui keputusan yang harus dilakukan manusia." },
         { role: "user", content: prompt }
