@@ -113,3 +113,33 @@ tbody tr:hover{background:#fafcff}
 .ai-review-result{white-space:pre-wrap;line-height:1.7;color:#26364d;font-size:13px;overflow-wrap:anywhere;max-height:70vh;overflow:auto;padding:4px 0}.ai-review-result.muted{color:#8390a3}
 
 .login-register-link{display:flex;justify-content:center;align-items:center;gap:5px;margin:18px 0 12px;font-size:13px}.text-button{border:0;background:transparent;color:#2865a8;font-weight:700;padding:4px}.text-button:hover{text-decoration:underline}.register-divider{height:1px;background:#e5eaf1;margin:22px 0}.register-title{font:800 20px Manrope;margin:0 0 6px;color:#1b2940}#register-form label{margin:14px 0}
+
+
+/* COSMIC BRIGHT UI — animated galaxy-inspired visual layer */
+:root{--cosmic-indigo:#6b5cff;--cosmic-cyan:#27c6f5;--cosmic-pink:#f09bff;--cosmic-glow:rgba(112,97,255,.16)}
+body{background:linear-gradient(135deg,#f7faff,#eef5ff 48%,#fbf4ff);background-attachment:fixed}
+.app-shell{position:relative;isolation:isolate;background:transparent;overflow:hidden}
+.app-shell:before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse at 85% 8%,rgba(120,119,255,.13),transparent 42%),radial-gradient(ellipse at 45% 92%,rgba(55,203,246,.10),transparent 40%),radial-gradient(ellipse at 15% 45%,rgba(219,151,255,.10),transparent 38%);animation:nebulaDrift 18s ease-in-out infinite alternate}
+@keyframes nebulaDrift{from{transform:translate3d(-1%,0,0) scale(1)}to{transform:translate3d(1%,1%,0) scale(1.035)}}
+.login-shell{position:relative;overflow:hidden;background:radial-gradient(ellipse at 20% 25%,#a7d8ff 0%,transparent 36%),radial-gradient(ellipse at 80% 85%,#e4baff 0%,transparent 40%),linear-gradient(135deg,#101b53,#263c91 48%,#633eae)}
+.login-shell:before,.login-shell:after{content:"";position:absolute;inset:-30%;pointer-events:none;background-image:radial-gradient(2px 2px at 20% 30%,#fff 90%,transparent),radial-gradient(2px 2px at 65% 18%,#fff 90%,transparent),radial-gradient(1.5px 1.5px at 75% 70%,#fff 90%,transparent),radial-gradient(2px 2px at 40% 85%,#fff 90%,transparent),radial-gradient(1px 1px at 90% 40%,#fff 90%,transparent);background-size:310px 260px;opacity:.55;animation:starDrift 40s linear infinite}
+.login-shell:after{background-size:420px 370px;opacity:.3;animation-duration:65s;animation-direction:reverse}
+@keyframes starDrift{to{transform:translate3d(70px,-55px,0)}}
+.login-card{position:relative;z-index:1;background:rgba(255,255,255,.94);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.6);box-shadow:0 30px 100px rgba(5,14,60,.32);animation:cardArrival .65s cubic-bezier(.2,.75,.2,1) both}
+@keyframes cardArrival{from{opacity:0;transform:translateY(18px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+.brand-mark{background:linear-gradient(135deg,#42c9ff,#6a5cff 55%,#d66bff);box-shadow:0 10px 30px rgba(96,91,255,.32)}
+.sidebar{background:linear-gradient(160deg,#111b50 0%,#202d78 52%,#36256f 100%);box-shadow:10px 0 40px rgba(27,31,100,.12)}
+.brand-mark.small{background:linear-gradient(135deg,#48d4ff,#7a68ff 58%,#f17bff);box-shadow:0 7px 22px rgba(115,100,255,.4)}
+.nav-item,.primary,.secondary,.action-button,.notification-button,.logout,.metric,.panel,.record-dialog{transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease,background .22s ease}
+.nav-item:hover{transform:translateX(3px)}
+.nav-item.active{background:linear-gradient(100deg,rgba(89,132,255,.35),rgba(185,115,255,.15));box-shadow:inset 3px 0 #75e1ff,0 0 22px rgba(106,111,255,.14)}
+.primary{background:linear-gradient(110deg,#4b7bff,#7356f5 55%,#a05bdb);box-shadow:0 7px 18px rgba(97,89,237,.2)}
+.primary:hover{transform:translateY(-1px);box-shadow:0 10px 24px rgba(97,89,237,.28)}
+.metric,.panel{background:rgba(255,255,255,.88);backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(47,75,130,.055);border-color:rgba(221,230,250,.9)}
+.metric:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(80,105,175,.11);border-color:#d2d8ff}
+.metric:nth-child(4n+1){border-top:2px solid #72caff}.metric:nth-child(4n+2){border-top:2px solid #a79aff}.metric:nth-child(4n+3){border-top:2px solid #ffb4e8}.metric:nth-child(4n+4){border-top:2px solid #8de4d5}
+.topbar{background:rgba(255,255,255,.88);backdrop-filter:blur(16px);box-shadow:0 5px 22px rgba(50,70,120,.04)}
+.avatar{background:linear-gradient(135deg,#dff5ff,#e8e2ff);color:#5446be}
+.record-dialog{box-shadow:0 30px 100px rgba(20,35,90,.28)}
+.toast{background:linear-gradient(100deg,#283b92,#6352c8);box-shadow:0 10px 35px rgba(42,48,135,.28)}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
