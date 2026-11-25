@@ -143,3 +143,15 @@ body{background:linear-gradient(135deg,#f7faff,#eef5ff 48%,#fbf4ff);background-a
 .record-dialog{box-shadow:0 30px 100px rgba(20,35,90,.28)}
 .toast{background:linear-gradient(100deg,#283b92,#6352c8);box-shadow:0 10px 35px rgba(42,48,135,.28)}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+
+/* AUTO-CHANGING COSMIC COLORWAYS */
+@keyframes cosmicColorShift{0%,100%{--cosmic-a:#4b7bff;--cosmic-b:#7856f5;--cosmic-c:#d66bff;--cosmic-d:#40d7ff}25%{--cosmic-a:#17b9d6;--cosmic-b:#4c77ff;--cosmic-c:#9a72ff;--cosmic-d:#75f0d2}50%{--cosmic-a:#a05bdb;--cosmic-b:#f078c8;--cosmic-c:#687cff;--cosmic-d:#ffc47a}75%{--cosmic-a:#31b7a6;--cosmic-b:#4b83e8;--cosmic-c:#bc79f2;--cosmic-d:#f1a1d9}}
+@keyframes nebulaColorPulse{0%,100%{background-position:0% 50%;filter:hue-rotate(0deg)}50%{background-position:100% 50%;filter:hue-rotate(18deg)}}
+:root{animation:cosmicColorShift 36s ease-in-out infinite}
+.app-shell:before{background:radial-gradient(ellipse at 85% 8%,color-mix(in srgb,var(--cosmic-c) 18%,transparent),transparent 42%),radial-gradient(ellipse at 45% 92%,color-mix(in srgb,var(--cosmic-d) 15%,transparent),transparent 40%),radial-gradient(ellipse at 15% 45%,color-mix(in srgb,var(--cosmic-a) 13%,transparent),transparent 38%);background-size:180% 180%;animation:nebulaDrift 18s ease-in-out infinite alternate,nebulaColorPulse 30s ease-in-out infinite}
+.sidebar{background:linear-gradient(160deg,var(--cosmic-b),#202d78 52%,var(--cosmic-c));background-size:220% 220%;animation:nebulaColorPulse 32s ease-in-out infinite}
+.brand-mark,.brand-mark.small{background:linear-gradient(135deg,var(--cosmic-d),var(--cosmic-a) 55%,var(--cosmic-c));background-size:200% 200%;animation:nebulaColorPulse 24s ease-in-out infinite}
+.primary{background:linear-gradient(110deg,var(--cosmic-a),var(--cosmic-b) 55%,var(--cosmic-c));background-size:220% 220%;animation:nebulaColorPulse 28s ease-in-out infinite}
+.metric:nth-child(4n+1){border-top-color:var(--cosmic-d)}.metric:nth-child(4n+2){border-top-color:var(--cosmic-c)}.metric:nth-child(4n+3){border-top-color:var(--cosmic-b)}.metric:nth-child(4n+4){border-top-color:var(--cosmic-a)}
+@media(prefers-reduced-motion:reduce){:root,.app-shell:before,.sidebar,.brand-mark,.brand-mark.small,.primary{animation:none!important}}
